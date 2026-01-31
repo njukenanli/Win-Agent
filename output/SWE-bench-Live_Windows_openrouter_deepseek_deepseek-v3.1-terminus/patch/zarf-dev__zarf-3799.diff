@@ -1,0 +1,55 @@
+git --no-pager diff HEAD --diff-filter=M --text
+warning: CRLF will be replaced by LF in src/internal/packager2/actions/actions.g
+go.
+The file will have its original line endings in your working directory
+diff --git a/src/internal/packager2/actions/actions.go b/src/internal/packager2/
+/actions/actions.go
+index abe7d915..6d0c0fe5 100644
+--- a/src/internal/packager2/actions/actions.go
++++ b/src/internal/packager2/actions/actions.go
+@@ -225,15 +225,19 @@ func actionCmdMutation(ctx context.Context, cmd string, sh
+hellPref v1alpha1.Shell
+                // http://web.cs.ucla.edu/~miryung/teaching/EE461L-Spring2012/la
+abs/posix.html for more details.
+                cmd = regexp.MustCompile(`^touch `).ReplaceAllString(cmd, `New-I
+Item `)
+
+-               // Convert any ${ZARF_VAR_*} or $ZARF_VAR_* to ${env:ZARF_VAR_*}
+} or $env:ZARF_VAR_* respectively (also TF_VAR_*).
+-               // https://regex101.com/r/xk1rkw/1
+-               envVarRegex := regexp.MustCompile(`(?P<envIndicator>\${?(?P<varN
+Name>(ZARF|TF)_VAR_([a-zA-Z0-9_-])+)}?)`)
+-               get, err := helpers.MatchRegex(envVarRegex, cmd)
+-               if err == nil {
+-                       newCmd := strings.ReplaceAll(cmd, get("envIndicator"), f
+fmt.Sprintf("$Env:%s", get("varName")))
+-                       logger.From(ctx).Debug("converted command", "cmd", cmd, 
+ "newCmd", newCmd)
+-                       cmd = newCmd
+-               }
++               // Convert any ${ZARF_VAR_*} or $ZARF_VAR_* to $env:ZARF_VAR_* o
+or $env:ZARF_VAR_* respectively (also TF_VAR_* and ZARF_CONST_*).
++               // Regex to match ${VAR}, $VAR, ${CONST}, $CONST patterns with b
+both ZARF_ and TF_ prefixes
++               envVarRegex := regexp.MustCompile(`(\$\{?(ZARF|TF)_(VAR|CONST)_(
+([a-zA-Z0-9_-]+)}?)`)
++               // Replace all occurrences with PowerShell environment variable 
+ syntax
++               cmd = envVarRegex.ReplaceAllStringFunc(cmd, func(match string) s
+string {
++                       // Extract the prefix (ZARF/TF), type (VAR/CONST), and n
+name parts
++                       re := regexp.MustCompile(`\$\{?(ZARF|TF)_(VAR|CONST)_([a
+a-zA-Z0-9_-]+)}?`)
++                       matches := re.FindStringSubmatch(match)
++                       if matches != nil {
++                               return fmt.Sprintf("$Env:%s_%s_%s", matches[1], 
+ matches[2], matches[3])
++                       }
++                       return match
++               })
+        }
+
+        return cmd, nil
+PS>
+PS>prompt

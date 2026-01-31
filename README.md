@@ -6,6 +6,8 @@
 pip install -r requirements.txt
 ```
 
+To run on Windows container, download Docker Desktop, start it, and switch to Windows container mode.
+
 
 ## Run
 
@@ -18,6 +20,7 @@ openrouter model:
     base_url: https://openrouter.ai/api/v1
 
 ### Rollout
+
 For windows:
 ```powershell
 $env:PYTHONUTF8="1" 
