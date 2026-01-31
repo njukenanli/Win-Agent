@@ -114,6 +114,11 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {$u="https://www.py
         return 
     
     def run_dataset(self, instances: list[dict[str, Any]]):
+        if os.path.exists(f"output/{self.run_id}/exit_status.json"):
+            with open(f"output/{self.run_id}/exit_status.json") as f:
+                s = f.read()
+                if s.strip():
+                    self.exit_status.update(json.loads(s))
         for instance in instances:
             print(f"Running on instance {instance['instance_id']}...")
             patch_file = f"output/{self.run_id}/patch/{instance['instance_id']}.diff"
