@@ -2,3 +2,4 @@ venv
 logs
 **.log
 **.txt
+**__pycache__**

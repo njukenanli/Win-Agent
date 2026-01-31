@@ -30,10 +30,16 @@ old_string = safe_read(args.old_file)
 new_string = safe_read(args.new_file)
 
 def string_replace(path, old_string, new_string):
-    if not os.path.exists(path):
-        return f"{path} not found"
-    with open(path, encoding="utf-8") as f:
-        content = f.read()
+    if not os.path.isfile(path):
+        return f"{path} is not found or is directory. If the path is directory just use `ls path`"
+    
+    try:
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+    except Exception as e:
+        import traceback
+        return f"{e}\n{traceback.format_exc()}\nPath not found or is directory or you do not have permission. If If is directory just use `ls path`. If you do not have permission please run commands to change permission."
+    
     matches = content.count(old_string) 
     if matches > 1:
         return "old_string has multiple matches in the target file, so string replace is not performed. your old_string should have a wider span to be more specific."

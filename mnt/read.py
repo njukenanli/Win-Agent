@@ -26,11 +26,16 @@ args = parser.parse_args()
 path = safe_read(args.path_file)
 
 def view(path, start, end):
-    if not os.path.exists(path):
-        return f"{path} not found"
+    if not os.path.isfile(path):
+        return f"{path} is not found or is directory. If the path is directory just use `ls path`"
     
-    with open(path, encoding="utf-8") as f:
-        content_list = f.read().splitlines()
+    try:
+        with open(path, encoding="utf-8") as f:
+            content_list = f.read().splitlines()
+    except Exception as e:
+        import traceback
+        return f"{e}\n{traceback.format_exc()}\nPath not found or is directory or you do not have permission. If If is directory just use `ls path`. If you do not have permission please run commands to change permission."
+    
     if start > len(content_list):
         return f"start line number > max line number. there are {len(content_list)} lines in the file."
     base = 1
