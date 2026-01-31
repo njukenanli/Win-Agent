@@ -1,0 +1,44 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 94b1c9bfe..794505666 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -505,8 +505,14 @@ if(MSVC AND TARGET SDL3-shared)
+     target_compile_options(SDL3-shared PRIVATE "$<$<COMPILE_LANGUAGE:ASM_MASM>:
+:/nologo>")
+     set_property(SOURCE "${asm_src}" PROPERTY LANGUAGE "ASM_MASM")
+     target_sources(SDL3-shared PRIVATE "${asm_src}")
+-  elseif(SDL_CPU_ARM32 OR SDL_CPU_ARM64)
+-    # FIXME: ARM assembler (armasm.exe/armasm64.exe) is NOT ASM_MASM, and does 
+ currently not work with CMake
++  elseif(SDL_CPU_ARM64)
++    enable_language(ASM_MASM)
++    set(asm_src_arm64 "${SDL3_SOURCE_DIR}/src/stdlib/SDL_mslibc_arm64.masm")   
++    target_compile_options(SDL3-shared PRIVATE "$<$<COMPILE_LANGUAGE:ASM_MASM>:
+:/nologo>")
++    set_property(SOURCE "${asm_src_arm64}" PROPERTY LANGUAGE "ASM_MASM")       
++    target_sources(SDL3-shared PRIVATE "${asm_src_arm64}")
++  elseif(SDL_CPU_ARM32)
++    # FIXME: ARM32 assembler (armasm.exe) is NOT ASM_MASM, and does currently n
+not work with CMake
+     # (https://gitlab.kitware.com/cmake/cmake/-/issues/18912)
+   endif()
+ endif()
+diff --git a/src/stdlib/SDL_mslibc.c b/src/stdlib/SDL_mslibc.c
+index a527bf75d..203c1746f 100644
+--- a/src/stdlib/SDL_mslibc.c
++++ b/src/stdlib/SDL_mslibc.c
+@@ -730,9 +730,8 @@ void __declspec(naked) _alloca_probe_16(void)
+
+ #ifdef _M_ARM64
+
+-void __chkstk(void);
+-void __chkstk() {
+-}
++// __chkstk implementation is now in SDL_mslibc_arm64.masm
++// No stub needed - linker will use the actual implementation
+
+ #endif
+
+PS>
+PS>prompt

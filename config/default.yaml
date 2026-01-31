@@ -1,0 +1,27 @@
+dataset: SWE-bench-Live/Windows
+platform: windows
+model: openrouter/deepseek/deepseek-v3.1-terminus
+base_url: https://openrouter.ai/api/v1
+tools:
+  - shell
+  - read
+  - create
+  - string_replace
+  - submit
+max_steps: 100
+prompt: |
+  You are given a code repository at C:\testbed
+  You are in Windows powershell
+  You need to solve the following problem:
+  _PROBLEM_STATEMENT_
+  =================================================
+  Follow these steps to solve the problem:
+  1) Explore the repository to find relevant codes.
+  2) Write a test code file to reproduce the problem and test your answer. Run your test file to see if it can reproduce the problem.
+  3) Edit codes to solve the problem.
+  4) Run your test file to validate your answer. If the test fails, go back to explore and edit again.
+  5) If you pass your test, use submit tool call to submit.
+  =================================================
+  Note:
+  1) Each of your response should contain exactly one tool call.
+  2) Only edit existing files instead of creating new files, except that you can create a test file.

@@ -1,0 +1,62 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/pkg/commands/git_commands/config.go b/pkg/commands/git_commands/con
+nfig.go
+index 5ea8f91d7..7a2d0f68d 100644
+--- a/pkg/commands/git_commands/config.go
++++ b/pkg/commands/git_commands/config.go
+@@ -68,6 +68,16 @@ func (self *ConfigCommands) UsingGpg() bool {
+        return self.gitConfig.GetBool("commit.gpgsign")
+ }
+
++// UsingTagGpgSign tells us whether the user has tag gpg signing enabled       
++func (self *ConfigCommands) UsingTagGpgSign() bool {
++       overrideGpg := self.UserConfig().Git.OverrideGpg
++       if overrideGpg {
++               return false
++       }
++
++       return self.gitConfig.GetBool("tag.gpgsign")
++}
++
+ func (self *ConfigCommands) GetCoreEditor() string {
+        return self.gitConfig.Get("core.editor")
+ }
+diff --git a/pkg/gui/controllers/helpers/tags_helper.go b/pkg/gui/controllers/he
+elpers/tags_helper.go
+index aa6ff7740..5af7bcfb1 100644
+--- a/pkg/gui/controllers/helpers/tags_helper.go
++++ b/pkg/gui/controllers/helpers/tags_helper.go
+@@ -28,9 +28,19 @@ func (self *TagsHelper) OpenCreateTagPrompt(ref string, onCre
+eate func()) error {
+                                        return err
+                                }
+                        } else {
+-                               self.c.LogAction(self.c.Tr.Actions.CreateLightwe
+eightTag)
+-                               if err := self.c.Git().Tag.CreateLightweight(tag
+gName, ref, force); err != nil {
+-                                       return err
++                               // Check if tag.gpgsign is enabled
++                               if self.c.Git().Config.UsingTagGpgSign() {      
++                                       // If tag.gpgsign is true and descriptio
+on is empty, Git will try to open an editor
++                                       // for the tag message. To avoid hanging
+g, we should force an annotated tag with a default message
++                                       self.c.LogAction(self.c.Tr.Actions.Creat
+teAnnotatedTag)
++                                       if err := self.c.Git().Tag.CreateAnnotat
+ted(tagName, ref, "Signed tag", force); err != nil {
++                                               return err
++                                       }
++                               } else {
++                                       self.c.LogAction(self.c.Tr.Actions.Creat
+teLightweightTag)
++                                       if err := self.c.Git().Tag.CreateLightwe
+eight(tagName, ref, force); err != nil {
++                                               return err
++                                       }
+                                }
+                        }
+
+PS>
+PS>prompt

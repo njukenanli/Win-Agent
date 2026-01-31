@@ -1,0 +1,43 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/server/certstore/certstore_windows.go b/server/certstore/certstore_
+_windows.go
+index d47adb6ee..20c1b2643 100644
+--- a/server/certstore/certstore_windows.go
++++ b/server/certstore/certstore_windows.go
+@@ -597,15 +597,26 @@ func winSignECDSA(kh uintptr, digest []byte) ([]byte, erro
+or) {
+ }
+
+ func winPackECDSASigValue(r io.Reader, digestLength int) ([]byte, error) {     
+-       sigR := make([]byte, digestLength)
+-       if _, err := io.ReadFull(r, sigR); err != nil {
++       // For ECDSA signatures, Windows returns R and S values concatenated.   
++       // The curve size (not digest length) determines the size of R and S com
+mponents.
++       // Instead of using digest length, we read the entire signature and spli
+it it.
++
++       // Read the entire signature to determine its size
++       buf := new(bytes.Buffer)
++       _, err := buf.ReadFrom(r)
++       if err != nil {
+                return nil, ErrStoreECDSASigningError
+        }
+-
+-       sigS := make([]byte, digestLength)
+-       if _, err := io.ReadFull(r, sigS); err != nil {
++       signature := buf.Bytes()
++
++       // Each component (R and S) should be half the signature size
++       componentSize := len(signature) / 2
++       if componentSize*2 != len(signature) {
+                return nil, ErrStoreECDSASigningError
+        }
++
++sigR := signature[:componentSize]
++       sigS := signature[componentSize:]
+
+        var b cryptobyte.Builder
+        b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
+PS>
+PS>prompt

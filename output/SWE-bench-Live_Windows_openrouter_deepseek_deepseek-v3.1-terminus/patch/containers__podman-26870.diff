@@ -1,0 +1,41 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/pkg/specgenutil/specgen.go b/pkg/specgenutil/specgen.go
+index 2a3171e8c3..b6f807e0ef 100644
+--- a/pkg/specgenutil/specgen.go
++++ b/pkg/specgenutil/specgen.go
+@@ -737,13 +737,19 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.
+.ContainerCreateOptions
+                case "proc-opts":
+                        s.ProcOpts = strings.Split(val, ",")
+                case "seccomp":
+-                       convertedPath, err := specgen.ConvertWinMountPath(val)  
+-                       if err != nil {
+-                               // If the conversion fails, use the original pat
+th
+-                               convertedPath = val
++                       // Don't convert special values like "unconfined"       
++                       if val == "unconfined" || val == "" {
++                               s.SeccompProfilePath = val
++                               s.Annotations[define.InspectAnnotationSeccomp] =
+= val
++                       } else {
++                               convertedPath, err := specgen.ConvertWinMountPat
+th(val)
++                               if err != nil {
++                                       // If the conversion fails, use the orig
+ginal path
++                                       convertedPath = val
++                               }
++                               s.SeccompProfilePath = convertedPath
++                               s.Annotations[define.InspectAnnotationSeccomp] =
+= convertedPath
+                        }
+-                       s.SeccompProfilePath = convertedPath
+-                       s.Annotations[define.InspectAnnotationSeccomp] = convert
+tedPath
+                        // this option is for docker compatibility, it is the sa
+ame as unmask=ALL
+                case "systempaths":
+                        if val == "unconfined" {
+PS>
+PS>prompt

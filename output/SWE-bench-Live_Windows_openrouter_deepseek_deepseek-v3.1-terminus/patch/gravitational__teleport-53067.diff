@@ -1,0 +1,106 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/api/types/constants.go b/api/types/constants.go
+index c3afb2fcce..aaa1a6d842 100644
+--- a/api/types/constants.go
++++ b/api/types/constants.go
+@@ -1001,6 +1001,8 @@ const (
+        DiscoveryLabelWindowsIsDomainController = TeleportNamespace + "/is_domai
+in_controller"
+        // DiscoveryLabelWindowsDomain is an Active Directory domain name.      
+        DiscoveryLabelWindowsDomain = TeleportNamespace + "/windows_domain"     
++       // DiscoveryLabelWindowsCustomRDPPort is the custom RDP port for discove
+ered Windows desktops.
++       DiscoveryLabelWindowsCustomRDPPort = TeleportNamespace + "/custom_rdp_po
+ort"
+        // DiscoveryLabelLDAPPrefix is the prefix used when applying any custom 
+        // labels per the discovery LDAP attribute labels configuration.        
+        DiscoveryLabelLDAPPrefix = "ldap/"
+@@ -1010,7 +1012,7 @@ const (
+ // the sorted labels list to reduce visual clutter. This will generally be auto
+omatically
+ // discovered cloud provider labels such as azure/aks-managed-createOperationID
+D=123123123123
+ // or internal labels
+-var BackSortedLabelPrefixes = []string{CloudAWS, CloudAzure, CloudGCP, Discover
+ryLabelLDAPPrefix, TeleportNamespace}
++var BackSortedLabelPrefixes = []string{CloudAWS, CloudAzure, CloudGCP, Discover
+ryLabelLDAPPrefix, TeleportNamespace, DiscoveryLabelWindowsCustomRDPPort}        
+
+ const (
+        // TeleportInternalLabelPrefix is the prefix used by all Teleport intern
+nal labels. Those labels
+diff --git a/lib/service/servicecfg/windows.go b/lib/service/servicecfg/windows.
+.go
+index 988dc16b3e..db8465da2b 100644
+--- a/lib/service/servicecfg/windows.go
++++ b/lib/service/servicecfg/windows.go
+@@ -97,6 +97,10 @@ type LDAPDiscoveryConfig struct {
+        // discovered desktops having a label with key "ldap/location" and      
+        // the value being the value of the "location" attribute.
+        LabelAttributes []string
++       // CustomRDPPortAttribute is the LDAP attribute that contains the custom
+m RDP port number
++       // for discovered Windows desktops. If specified and the attribute exist
+ts on the desktop
++       // object, Teleport will use this port instead of the default RDP port (
+(3389).
++       CustomRDPPortAttribute string
+ }
+
+ // HostLabelRules is a collection of rules describing how to apply labels to ho
+osts.
+diff --git a/lib/srv/desktop/discovery.go b/lib/srv/desktop/discovery.go        
+index ee50a8de2a..abee76cd3c 100644
+--- a/lib/srv/desktop/discovery.go
++++ b/lib/srv/desktop/discovery.go
+@@ -335,7 +335,22 @@ func (s *WindowsService) ldapEntryToWindowsDesktop(        
+        }
+
+        s.cfg.Logger.DebugContext(ctx, "resolved desktop host", "hostname", host
+tname, "addrs", addrs)
+-       addr, err := utils.ParseHostPortAddr(addrs[0], defaults.RDPListenPort)  
++
++       // Check if a custom RDP port is specified via LDAP attribute
++       rdpPort := defaults.RDPListenPort
++if s.cfg.DiscoveryLDAPCustomRDPPortAttribute != "" {
++               if customPortStr := entry.GetAttributeValue(s.cfg.DiscoveryLDAPC
+CustomRDPPortAttribute); customPortStr != "" {
++                       if customPort, err := strconv.Atoi(customPortStr); err =
+== nil && customPort > 0 && customPort <= 65535 {
++                               rdpPort = customPort
++                               labels[types.DiscoveryLabelWindowsCustomRDPPort]
+] = customPortStr
++                               s.cfg.Logger.DebugContext(ctx, "using custom RDP
+P port", "hostname", hostname, "port", rdpPort)
++                       } else {
++                               s.cfg.Logger.WarnContext(ctx, "invalid custom RD
+DP port", "hostname", hostname, "port", customPortStr, "error", err)
++                       }
++               }
++       }
++
++       addr, err := utils.ParseHostPortAddr(addrs[0], rdpPort)
+        if err != nil {
+                return nil, trace.Wrap(err)
+        }
+diff --git a/lib/srv/desktop/windows_server.go b/lib/srv/desktop/windows_server.
+.go
+index 767c959510..80dc3bcdd2 100644
+--- a/lib/srv/desktop/windows_server.go
++++ b/lib/srv/desktop/windows_server.go
+@@ -212,6 +212,10 @@ type WindowsServiceConfig struct {
+        // DiscoveryLDAPAttributeLabels are optional LDAP attributes to convert 
+        // into Teleport labels.
+        DiscoveryLDAPAttributeLabels []string
++       // DiscoveryLDAPCustomRDPPortAttribute is the LDAP attribute that contai
+ins the custom RDP port number
++       // for discovered Windows desktops. If specified and the attribute exist
+ts on the desktop
++       // object, Teleport will use this port instead of the default RDP port (
+(3389).
++       DiscoveryLDAPCustomRDPPortAttribute string
+        // Hostname of the Windows desktop service
+        Hostname string
+        // ConnectedProxyGetter gets the proxies teleport is connected to.      
+PS>
+PS>prompt

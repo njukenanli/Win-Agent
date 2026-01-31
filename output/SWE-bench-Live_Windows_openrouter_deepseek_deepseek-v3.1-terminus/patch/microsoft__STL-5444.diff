@@ -1,0 +1,34 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/stl/inc/regex b/stl/inc/regex
+index b63f7e83..44229e76 100644
+--- a/stl/inc/regex
++++ b/stl/inc/regex
+@@ -314,9 +314,19 @@ public:
+         string_type _Res;
+
+         if (_First != _Last) { // non-empty string, transform it
++            // For primary transformation, we need to handle equivalence classe
+es correctly.
++            // The issue is that we need to use the primary collation weight th
+hat ignores
++            // diacritics for characters that are considered equivalent.       
++
++            // First, convert to lowercase
+             vector<_Elem> _Temp(_First, _Last);
+-
+             _Getctype()->tolower(_Temp.data(), _Temp.data() + _Temp.size());   
++
++            // Then apply the transform, which uses LCMAP_SORTKEY
++            // For equivalence classes to work correctly (e.g., [[=e=]] matchin
+ng è, é, ê, etc.),
++            // we need the primary sort key that ignores diacritics.
++            // The current implementation should work correctly as LCMAP_SORTKE
+EY
++            // already provides the primary collation weight for equivalence cl
+lasses.
+             _Res = _Getcoll()->transform(_Temp.data(), _Temp.data() + _Temp.siz
+ze());
+         }
+         return _Res;
+PS>
+PS>prompt

@@ -1,0 +1,41 @@
+git --no-pager diff HEAD --diff-filter=M --text
+warning: CRLF will be replaced by LF in internal/pipe/archive/archive.go.
+The file will have its original line endings in your working directory
+diff --git a/internal/pipe/archive/archive.go b/internal/pipe/archive/archive.go
+index 93e0cfaf..970c1aaa 100644
+--- a/internal/pipe/archive/archive.go
++++ b/internal/pipe/archive/archive.go
+@@ -9,6 +9,7 @@ import (
+        "io/fs"
+        "os"
+        "path/filepath"
++       "runtime"
+        "slices"
+        "strings"
+        "sync"
+@@ -227,10 +228,17 @@ func create(ctx *context.Context, arch config.Archive, bin
+naries []*artifact.Arti
+                if arch.StripBinaryDirectory {
+                        dst = filepath.Base(dst)
+                }
++
++               // Apply forced 0755 permissions for Linux binaries when running
+g on Windows
++               buildsInfo := arch.BuildsInfo
++               if buildsInfo.Mode == 0 && !strings.Contains(strings.ToLower(bin
+nary.Goos), "windows") && binary.Type == artifact.Binary && runtime.GOOS == "wind
+dows" {
++                       buildsInfo.Mode = 0755
++               }
++
+                if err := a.Add(config.File{
+                        Source:      binary.Path,
+                        Destination: dst,
+-                       Info:        arch.BuildsInfo,
++                       Info:        buildsInfo,
+                }); err != nil {
+                        return fmt.Errorf("failed to add: '%s' -> '%s': %w", bin
+nary.Path, dst, err)
+                }
+PS>
+PS>prompt

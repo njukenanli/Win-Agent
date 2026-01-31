@@ -1,0 +1,39 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/pkg/machine/wsl/machine.go b/pkg/machine/wsl/machine.go
+index 3355f6b2b5..8e3e9974cc 100644
+--- a/pkg/machine/wsl/machine.go
++++ b/pkg/machine/wsl/machine.go
+@@ -311,16 +311,24 @@ func writeWslConf(dist string, user string) error {       
+ }
+
+ func checkAndInstallWSL(reExec bool) (bool, error) {
+-       if wutil.IsWSLInstalled() {
+-               return true, nil
+-       }
+-
+        admin := HasAdminRights()
+
++       // Check if WSL features are properly enabled first
++       // This ensures we don't try to import into WSL when features are disabl
+led
+        if !IsWSLFeatureEnabled() {
++               // If features are not enabled, check if WSL appears to be "inst
+talled"
++               // This handles the regression case where WSL exe exists but fea
+atures are disabled
++               if wutil.IsWSLInstalled() {
++                       return false, attemptFeatureInstall(reExec, admin)      
++               }
+                return false, attemptFeatureInstall(reExec, admin)
+        }
+
++       // If features are enabled, check if WSL is fully installed
++       if wutil.IsWSLInstalled() {
++               return true, nil
++       }
++
+        skip := false
+        if reExec && !admin {
+                fmt.Println("Launching WSL Kernel Install...")
+PS>
+PS>prompt
