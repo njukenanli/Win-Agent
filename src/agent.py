@@ -55,7 +55,10 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {$u="https://www.py
     
     def save_patch(self, container: Runtime, instance_id: str):
         os.makedirs(f"output/{self.run_id}/patch", exist_ok=True)
-        patch = container.send_command("git --no-pager diff HEAD --diff-filter=M --text").output
+        patch = (container.send_command("git --no-pager diff HEAD --diff-filter=M --text")
+                 .output
+                 .replace("""PS>
+PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", ""))
         patch_file = f"output/{self.run_id}/patch/{instance_id}.diff"
         with open(patch_file, "w", encoding="utf-8") as f:
             f.write(patch)
