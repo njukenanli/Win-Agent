@@ -81,12 +81,21 @@ if (Test-Path $root) {
         goto_cwd = r"cd C:\testbed  " if container.platform == "windows" else "cd /testbed  "
         container.send_command(goto_cwd)
         os.makedirs(f"output/{self.run_id}/patch", exist_ok=True)
-        
+
         temp_file = f"mnt/{self.run_id}_{instance_id}.diff"
         patch = container.send_command(f"git --no-pager diff HEAD --diff-filter=M --text > {temp_file}")
         time.sleep(16)
-        with open(temp_file, encoding = "utf-8") as f:
-            patch = f.read().replace("""PS>
+        for encoding in ["utf-8", "utf-16", "utf-16-le", "utf-16-be", "latin-1"]:
+            try:
+                with open(temp_file, encoding=encoding) as f:
+                    patch = f.read()
+                break
+            except (UnicodeDecodeError, UnicodeError):
+                pass
+        else:
+            with open(temp_file, encoding="utf-8", errors="ignore") as f:
+                patch = f.read()
+        patch = patch.replace("""PS>
 PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
         start = patch.find("diff --git")
         patch = patch[start:]
@@ -171,9 +180,7 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
                 s = f.read()
                 if s.strip():
                     old_status = json.loads(s)
-                    self.exit_status.update({
-                        k : v for k , v in old_status.items() if v != "error"
-                    })
+                    self.exit_status.update(old_status)
         for instance in instances:
             print(f"Running on instance {instance['instance_id']}...")
             patch_file = f"output/{self.run_id}/patch/{instance['instance_id']}.diff"
