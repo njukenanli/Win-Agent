@@ -52,6 +52,29 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {$u="https://www.py
             # Grant full permissions on C:\testbed to ensure all operations succeed
             container.send_command(r'icacls "C:\testbed" /grant "Everyone:(OI)(CI)F" /T /Q')
         container.send_command("git add --update ; git commit -m 'local changes' ")
+
+
+    def set_mnt_permissions(self, container: Runtime) -> None:
+        if container.platform == "windows":
+            ps_script = r'''
+$root = "C:\\testbed\\mnt"
+if (Test-Path $root) {
+  Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($_.Extension -ieq ".py") { $_.IsReadOnly = $true } else { $_.IsReadOnly = $false }
+  }
+}
+'''
+            container.send_command(ps_script)
+        else:
+            mnt_path = "/testbed/mnt"
+            cmd = (
+                f'if [ -d "{mnt_path}" ]; then '
+                f'chmod -R a+rwX "{mnt_path}" && '
+                f'find "{mnt_path}" -type f -name "*.py" -exec chmod a=r {{}} +; '
+                f'fi'
+            )
+            container.send_command(cmd)
+
     
     def save_patch(self, container: Runtime, instance_id: str):
         os.makedirs(f"output/{self.run_id}/patch", exist_ok=True)
@@ -78,6 +101,7 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
                                                     self.platform)
         self.install_py(container) # for tool call utils
         self.init_git(container) # to isolate agent's edits
+        self.set_mnt_permissions(container)
 
         prompt = self.prompt_template.replace("_PROBLEM_STATEMENT_", instance["problem_statement"])
         messages =  [
@@ -121,11 +145,14 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
             with open(f"output/{self.run_id}/exit_status.json") as f:
                 s = f.read()
                 if s.strip():
-                    self.exit_status.update(json.loads(s))
+                    old_status = json.loads(s)
+                    self.exit_status.update({
+                        k : v for k , v in old_status.items() if v != "error"
+                    })
         for instance in instances:
             print(f"Running on instance {instance['instance_id']}...")
             patch_file = f"output/{self.run_id}/patch/{instance['instance_id']}.diff"
-            if os.path.exists(patch_file):
+            if os.path.exists(patch_file) and self.exit_status[instance['instance_id']] != "error":
                 print(f"Skipping {instance['instance_id']} ...")
                 continue
             self.rollout(instance)
