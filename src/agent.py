@@ -85,7 +85,7 @@ if (Test-Path $root) {
         temp_file = f"mnt/{self.run_id}_{instance_id}.diff"
         patch = container.send_command(f"git --no-pager diff HEAD --diff-filter=M --text > {temp_file}")
         time.sleep(16)
-        with open(temp_file) as f:
+        with open(temp_file, encoding = "utf-8") as f:
             patch = f.read().replace("""PS>
 PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
         start = patch.find("diff --git")
@@ -100,7 +100,7 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
         res = {}
         empty = 0
         for patch_file in os.listdir(patch_dir):
-            with open(os.path.join(patch_dir, patch_file)) as f:
+            with open(os.path.join(patch_dir, patch_file), encoding = "utf-8") as f:
                 patch = f.read().replace("""PS>
 PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
                 start = patch.find("diff --git")
@@ -183,7 +183,7 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
             self.rollout(instance)
             with open(f"output/{self.run_id}/exit_status.json", "w") as f:
                 json.dump(self.exit_status, f, indent = True)
-        with open(f"output/{self.run_id}/preds.json") as f:
+        with open(f"output/{self.run_id}/preds.json", encoding = "utf-8") as f:
             json.dump(self.gather_patch(f"output/{self.run_id}/patch"), f, indent = True)
 
 
