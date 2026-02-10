@@ -3,6 +3,7 @@ from functools import partial
 import json
 import os
 from datetime import datetime
+import time
 from typing import Any, Literal, Optional
 
 from litellm import ChatCompletionMessageToolCall
@@ -77,16 +78,22 @@ if (Test-Path $root) {
 
     
     def save_patch(self, container: Runtime, instance_id: str):
+        goto_cwd = r"cd C:\testbed  " if container.platform == "windows" else "cd /testbed  "
+        container.send_command(goto_cwd)
         os.makedirs(f"output/{self.run_id}/patch", exist_ok=True)
-        patch = (container.send_command("git --no-pager diff HEAD --diff-filter=M --text")
-                 .output
-                 .replace("""PS>
-PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", ""))
+        
+        temp_file = f"mnt/{self.run_id}_{instance_id}.diff"
+        patch = container.send_command(f"git --no-pager diff HEAD --diff-filter=M --text > {temp_file}")
+        time.sleep(16)
+        with open(temp_file) as f:
+            patch = f.read().replace("""PS>
+PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
         start = patch.find("diff --git")
         patch = patch[start:]
         patch_file = f"output/{self.run_id}/patch/{instance_id}.diff"
         with open(patch_file, "w", encoding="utf-8") as f:
             f.write(patch)
+        container.send_command(f"rm {temp_file}")
     
     @staticmethod
     def gather_patch(patch_dir):
