@@ -82,9 +82,27 @@ if (Test-Path $root) {
                  .output
                  .replace("""PS>
 PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", ""))
+        start = patch.find("diff --git")
+        patch = patch[start:]
         patch_file = f"output/{self.run_id}/patch/{instance_id}.diff"
         with open(patch_file, "w", encoding="utf-8") as f:
             f.write(patch)
+    
+    @staticmethod
+    def gather_patch(patch_dir):
+        res = {}
+        empty = 0
+        for patch_file in os.listdir(patch_dir):
+            with open(os.path.join(patch_dir, patch_file)) as f:
+                patch = f.read().replace("""PS>
+PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
+                start = patch.find("diff --git")
+                patch = patch[start:]
+                res[patch_file.strip(".diff")] = {"model_patch": patch}
+                if not patch.strip():
+                    empty += 1
+        print(f"Collected {len(res)} patches with {empty} empty.")
+        return res
     
     def rollout(self, instance: dict[str, Any]):
         '''
@@ -158,6 +176,8 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
             self.rollout(instance)
             with open(f"output/{self.run_id}/exit_status.json", "w") as f:
                 json.dump(self.exit_status, f, indent = True)
+        with open(f"output/{self.run_id}/preds.json") as f:
+            json.dump(self.gather_patch(f"output/{self.run_id}/patch"), f, indent = True)
 
 
 
