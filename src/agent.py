@@ -11,6 +11,7 @@ from src.runtime import Runtime
 from src.llm import LLM
 from src.tools import Tools
 from litellm.types.utils import ModelResponse, Message
+import traceback
 
 class Agent:
     def __init__(self, 
@@ -163,11 +164,10 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
                 self.exit_status[instance["instance_id"]] = "exit_cost"
 
         except Exception as e:
-            import traceback
             err = f"{e}\n{traceback.format_exc()}\nPatch not saved.\n"
             self.logger(instance["instance_id"], err)
             self.exit_status[instance["instance_id"]] = "error"
-
+            print(err)
         finally:
             self.save_patch(container, instance["instance_id"])
             container.cleanup()
@@ -187,7 +187,13 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
             if os.path.exists(patch_file) and self.exit_status[instance['instance_id']] != "error":
                 print(f"Skipping {instance['instance_id']} ...")
                 continue
-            self.rollout(instance)
+            try:
+                self.rollout(instance)
+            except Exception as e:
+                err = f"{e}\n{traceback.format_exc()}\nPatch not saved.\n"
+                self.logger(instance["instance_id"], err)
+                print(err)
+                self.exit_status[instance["instance_id"]] = "error"
             with open(f"output/{self.run_id}/exit_status.json", "w") as f:
                 json.dump(self.exit_status, f, indent = True)
         with open(f"output/{self.run_id}/preds.json", encoding = "utf-8") as f:
