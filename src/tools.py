@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Any, Optional
 
 from litellm import ChatCompletionMessageToolCall, Message
@@ -27,6 +28,8 @@ class Tools:
         if "submit" not in self.available_tools:
             self.available_tools.append("submit")
         self.tools: list[dict[str, Any]] = [self.tool_dict[i].tool for i in self.available_tools]
+        self.protected_files: list[str] = [i for i in os.listdir("mnt") if i.endswith(".py")]
+        print(self.protected_files)
 
     def tool_call(self, 
                   container: Runtime, 
@@ -72,6 +75,17 @@ class Tools:
                 }
             ], False
         
+        if "mnt" in tool_call.function.arguments and any([i in tool_call.function.arguments for i in self.protected_files]):
+            # for protected files
+            return [
+                {
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": function_name,
+                    "content": f"no permission for testbed/mnt directory.",
+                }
+            ], False
+        
         try:
             function_args = json.loads(tool_call.function.arguments)
         except:
@@ -91,4 +105,5 @@ class Tools:
                 "content": self.tool_dict[function_name].tool_call(container, function_args),
             }
         ]
+        os.system("git restore mnt") # for protected files
         return final_res, False
