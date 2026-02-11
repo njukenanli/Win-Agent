@@ -196,7 +196,7 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
                 self.exit_status[instance["instance_id"]] = "error"
             with open(f"output/{self.run_id}/exit_status.json", "w") as f:
                 json.dump(self.exit_status, f, indent = True)
-        with open(f"output/{self.run_id}/preds.json", encoding = "utf-8") as f:
+        with open(f"output/{self.run_id}/preds.json", "w", encoding = "utf-8") as f:
             json.dump(self.gather_patch(f"output/{self.run_id}/patch"), f, indent = True)
 
 
