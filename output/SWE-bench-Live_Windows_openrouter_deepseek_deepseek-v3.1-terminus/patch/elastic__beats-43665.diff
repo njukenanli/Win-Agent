@@ -2,43 +2,26 @@ git --no-pager diff HEAD --diff-filter=M --text
 warning: CRLF will be replaced by LF in metricbeat/module/windows/service/servic
 ce_status.go.
 The file will have its original line endings in your working directory
-warning: CRLF will be replaced by LF in metricbeat/module/windows/service/servic
-ce_status_test.go.
-The file will have its original line endings in your working directory
 diff --git a/metricbeat/module/windows/service/service_status.go b/metricbeat/mo
 odule/windows/service/service_status.go
-index 571d324cb5..df9879df56 100644
+index 571d324cb5..2507c1a26d 100644
 --- a/metricbeat/module/windows/service/service_status.go
 +++ b/metricbeat/module/windows/service/service_status.go
-@@ -168,7 +168,9 @@ func GetServiceStates(handle Handle, state ServiceEnumState,
-, protectedServices m
+@@ -168,7 +168,10 @@ func GetServiceStates(handle Handle, state ServiceEnumState
+e, protectedServices m
 
                 service, err := getServiceInformation(serviceTemp, servicesBuffe
 er, handle, protectedServices)
                 if err != nil {
 -                       return nil, err
 +                       // Log the error but continue processing other services 
- instead of stopping completely
-+                       logp.Warn("Failed to get information for service: %v", e
-err)
++                       // This prevents a single problematic service from stopp
+ping all monitoring
++                       logp.Warn("Failed to get service information for service
+e at index %d: %v", i, err)
 +                       continue
                 }
 
                 services = append(services, service)
-diff --git a/metricbeat/module/windows/service/service_status_test.go b/metricbe
-eat/module/windows/service/service_status_test.go
-index 3b81399d2c..34006b8c23 100644
---- a/metricbeat/module/windows/service/service_status_test.go
-+++ b/metricbeat/module/windows/service/service_status_test.go
-@@ -26,8 +26,6 @@ import (
- )
-
- func TestGetServiceStates(t *testing.T) {
--       t.Skip("Flaky test: https://github.com/elastic/beats/issues/22172")     
--
-        handle, err := openSCManager("", "", ScManagerEnumerateService|ScManager
-rConnect)
-        assert.NoError(t, err)
-        assert.NotEqual(t, handle, InvalidDatabaseHandle)
 PS>
 PS>prompt

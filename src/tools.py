@@ -29,7 +29,7 @@ class Tools:
             self.available_tools.append("submit")
         self.tools: list[dict[str, Any]] = [self.tool_dict[i].tool for i in self.available_tools]
         self.protected_files: list[str] = [i for i in os.listdir("mnt") if i.endswith(".py")]
-        print(self.protected_files)
+        #print(self.protected_files)
 
     def tool_call(self, 
                   container: Runtime, 

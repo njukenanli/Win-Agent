@@ -1,3 +1,156 @@
 git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/pkg/virt-launcher/virtwrap/api/deepcopy_generated.go b/pkg/virt-lau
+uncher/virtwrap/api/deepcopy_generated.go
+index 4a5456de2d..4205036514 100644
+--- a/pkg/virt-launcher/virtwrap/api/deepcopy_generated.go
++++ b/pkg/virt-launcher/virtwrap/api/deepcopy_generated.go
+@@ -2839,6 +2839,11 @@ func (in *OS) DeepCopy() *OS {
+ func (in *OSACPI) DeepCopyInto(out *OSACPI) {
+        *out = *in
+        out.Table = in.Table
++       if in.Tables != nil {
++               in, out := &in.Tables, &out.Tables
++               *out = make([]ACPITable, len(*in))
++               copy(*out, *in)
++       }
+        return
+ }
+
+diff --git a/pkg/virt-launcher/virtwrap/api/schema.go b/pkg/virt-launcher/virtwr
+rap/api/schema.go
+index 09627b7140..5a9e5b10a5 100644
+--- a/pkg/virt-launcher/virtwrap/api/schema.go
++++ b/pkg/virt-launcher/virtwrap/api/schema.go
+@@ -998,7 +998,8 @@ type OSType struct {
+ }
+
+ type OSACPI struct {
+-       Table ACPITable `xml:"table,omitempty"`
++       Table  ACPITable   `xml:"table,omitempty"`
++       Tables []ACPITable `xml:"tables>table,omitempty"`
+ }
+
+ type ACPITable struct {
+diff --git a/pkg/virt-launcher/virtwrap/converter/converter.go b/pkg/virt-launch
+her/virtwrap/converter/converter.go
+index 3d4f4b8be0..651b0ffafc 100644
+--- a/pkg/virt-launcher/virtwrap/converter/converter.go
++++ b/pkg/virt-launcher/virtwrap/converter/converter.go
+@@ -1232,24 +1232,50 @@ func Convert_v1_Firmware_To_related_apis(vmi *v1.Virtual
+lMachineInstance, domain
+        }
+
+        if firmware.ACPI != nil {
+-               path, err := getSlicMountedPath(vmi.Spec.Volumes, firmware.ACPI.
+.SlicNameRef)
+-               if err != nil {
+-                       log.Log.Object(vmi).Warningf("Failed to get supported pa
+ath for Volume: %s", firmware.ACPI.SlicNameRef)
+-                       return err
+-               }
++               var tables []api.ACPITable
+
+-               domain.Spec.OS.ACPI = &api.OSACPI{
+-                       Table: api.ACPITable{
++               // Handle SLIC table
++if firmware.ACPI.SlicNameRef != "" {
++                       path, err := getAcpiTableMountedPath(vmi.Spec.Volumes, f
+firmware.ACPI.SlicNameRef, "slic.bin")
++                       if err != nil {
++                               log.Log.Object(vmi).Warningf("Failed to get supp
+ported path for SLIC Volume: %s", firmware.ACPI.SlicNameRef)
++                               return err
++                       }
++                       tables = append(tables, api.ACPITable{
+                                Type: "slic",
+                                Path: path,
+-                       },
++                       })
++               }
++
++               // Handle MSDM table
++               if firmware.ACPI.MsdmNameRef != "" {
++                       path, err := getAcpiTableMountedPath(vmi.Spec.Volumes, f
+firmware.ACPI.MsdmNameRef, "msdm.bin")
++                       if err != nil {
++                               log.Log.Object(vmi).Warningf("Failed to get supp
+ported path for MSDM Volume: %s", firmware.ACPI.MsdmNameRef)
++                               return err
++                       }
++                       tables = append(tables, api.ACPITable{
++Type: "msdm",
++                               Path: path,
++                       })
++               }
++
++               if len(tables) > 0 {
++                       domain.Spec.OS.ACPI = &api.OSACPI{}
++                       if len(tables) == 1 {
++                               // For backward compatibility, set the Table fie
+eld for single table
++                               domain.Spec.OS.ACPI.Table = tables[0]
++                       } else {
++                               // For multiple tables, use the Tables field    
++                               domain.Spec.OS.ACPI.Tables = tables
++                       }
+}
+        }
+
+        return nil
+ }
+
+-func getSlicMountedPath(volumes []v1.Volume, name string) (string, error) {    
++func getAcpiTableMountedPath(volumes []v1.Volume, name string, filename string)
+) (string, error) {
+        // We need to know the the volume type referred by @name
+        for _, volume := range volumes {
+                if volume.Name != name {
+@@ -1257,15 +1283,20 @@ func getSlicMountedPath(volumes []v1.Volume, name string
+g) (string, error) {
+                }
+
+                if volume.Secret == nil {
+-                       return "", fmt.Errorf("Firmware's slic volume type is un
+nsupported")
++                       return "", fmt.Errorf("Firmware's acpi table volume type
+e is unsupported")
+                }
+
+-// Return path to slic binary data
++               // Return path to acpi table binary data
+                sourcePath := config.GetSecretSourcePath(name)
+-               return filepath.Join(sourcePath, "slic.bin"), nil
++               return filepath.Join(sourcePath, filename), nil
+        }
+
+-       return "", fmt.Errorf("Firmware's slic volume type not found")
++       return "", fmt.Errorf("Firmware's acpi table volume type not found")    
++}
++
++// getSlicMountedPath is kept for backward compatibility
++func getSlicMountedPath(volumes []v1.Volume, name string) (string, error) {    
++       return getAcpiTableMountedPath(volumes, name, "slic.bin")
+ }
+
+ func hasIOThreads(vmi *v1.VirtualMachineInstance) bool {
+diff --git a/staging/src/kubevirt.io/api/core/v1/schema.go b/staging/src/kubevir
+rt.io/api/core/v1/schema.go
+index 12043dc9f8..be09599e59 100644
+--- a/staging/src/kubevirt.io/api/core/v1/schema.go
++++ b/staging/src/kubevirt.io/api/core/v1/schema.go
+@@ -440,6 +440,10 @@ type ACPI struct {
+        // be a binary blob that follows the ACPI SLIC standard, see:
+        // https://learn.microsoft.com/en-us/previous-versions/windows/hardware/
+/design/dn653305(v=vs.85)
+        SlicNameRef string `json:"slicNameRef,omitempty"`
++       // MsdmNameRef should match the volume name of a secret object. The data
+a in the secret should
++       // be a binary blob that follows the ACPI MSDM standard, see:
++       // https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/mi
+icrosoft-software-licensing-descriptor-table
++       MsdmNameRef string `json:"msdmNameRef,omitempty"`
+ }
+
+ type Devices struct {
 PS>
 PS>prompt

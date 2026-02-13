@@ -1,0 +1,51 @@
+diff --git a/extensions/terminal-suggest/src/terminalSuggestMain.ts b/extensions/terminal-suggest/src/terminalSuggestMain.ts
+index 685ed841005..75adeaf8719 100644
+--- a/extensions/terminal-suggest/src/terminalSuggestMain.ts
++++ b/extensions/terminal-suggest/src/terminalSuggestMain.ts
+@@ -216,7 +216,7 @@ function getPrefix(commandLine: string, cursorPosition: number): string {
+ 	// Find the last sequence of non-whitespace characters before the cursor
+ 	const match = beforeCursor.match(/(\S+)\s*$/);
+ 
+-	// Return the match if found, otherwise undefined
++	// Return the match if found, otherwise empty string
+ 	return match ? match[0] : '';
+ }
+ 
+@@ -252,9 +252,13 @@ export async function getCompletionItemsFromSpecs(
+ 		}
+ 
+ 		for (const specLabel of specLabels) {
+-			const availableCommand = availableCommands.find(command => specLabel === command.label);
+-			// TODO: Normalize commands to ignore file extensions on Windows https://github.com/microsoft/vscode/issues/237598
+-			// const availableCommand = availableCommands.find(command => command.label.startsWith(specLabel));
++			const availableCommand = availableCommands.find(command => {
++				if (isWindows) {
++					const normalizedCommand = (command.definitionCommand ?? command.label).replace(/\.(exe|cmd|bat|com)$/i, '');
++					return specLabel === normalizedCommand;
++				}
++				return specLabel === command.label;
++			});
+ 			if (!availableCommand || (token && token.isCancellationRequested)) {
+ 				continue;
+ 			}
+@@ -267,11 +271,15 @@ export async function getCompletionItemsFromSpecs(
+ 				continue;
+ 			}
+ 
+-			// TODO: Normalize commands to ignore file extensions on Windows https://github.com/microsoft/vscode/issues/237598
+-			// const commandAndAliases = availableCommands.filter(command => specLabel === (command.definitionCommand ?? command.label).replace('.cmd', ''));
+-			// if (!commandAndAliases.some(e => terminalContext.commandLine.startsWith(`${e.label} `) || terminalContext.commandLine.startsWith(`${e.label}.cmd `))) {
+-			const commandAndAliases = availableCommands.filter(command => specLabel === (command.definitionCommand ?? command.label));
+-			if (!commandAndAliases.some(e => terminalContext.commandLine.startsWith(`${e.label} `))) {
++			// Normalize commands to ignore file extensions on Windows https://github.com/microsoft/vscode/issues/237598
++			const commandAndAliases = availableCommands.filter(command => {
++				const normalizedCommand = isWindows ? (command.definitionCommand ?? command.label).replace(/\.(exe|cmd|bat|com)$/i, '') : (command.definitionCommand ?? command.label);
++				return specLabel === normalizedCommand;
++			});
++			if (!commandAndAliases.some(e => {
++				const normalizedLabel = isWindows ? e.label.replace(/\.(exe|cmd|bat|com)$/i, '') : e.label;
++				return terminalContext.commandLine.startsWith(`${normalizedLabel} `) || (isWindows && terminalContext.commandLine.startsWith(`${e.label} `));
++			})) {
+ 				// the spec label is not the first word in the command line, so do not provide options or args
+ 				continue;
+ 			}

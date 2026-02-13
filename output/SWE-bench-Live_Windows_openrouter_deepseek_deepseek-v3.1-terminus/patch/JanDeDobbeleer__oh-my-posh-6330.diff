@@ -2,86 +2,40 @@ git --no-pager diff HEAD --diff-filter=M --text
 warning: CRLF will be replaced by LF in src/segments/path.go.
 The file will have its original line endings in your working directory
 diff --git a/src/segments/path.go b/src/segments/path.go
-index a59ec51e..8b64416b 100644
+index a59ec51e..110a4824 100644
 --- a/src/segments/path.go
 +++ b/src/segments/path.go
-@@ -620,7 +620,22 @@ func (pt *Path) replaceMappedLocations(inputPath string) (s
-string, string) {
-        for _, key := range keys {
-                if strings.HasPrefix(key, regexPrefix) {
-                        input := strings.ReplaceAll(inputPath, `\`, `/`)        
--                       match, OK := regex.FindStringMatch(key[len(regexPrefix):
-:], input, 1)
-+                       // For case-insensitive filesystems (Windows, macOS, and
-d WSL Windows drives), 
-+                       // normalize the input path for regex matching
-+                       adjustedInput := input
-+                       adjustedKey := key
-+
-+                       if pt.env.GOOS() == runtime.WINDOWS || pt.env.GOOS() == 
- runtime.DARWIN {
-+                               adjustedInput = strings.ToLower(input)
-+                               adjustedKey = strings.ToLower(key)
-+                       } else if pt.env.GOOS() == runtime.LINUX && strings.HasP
-Prefix(input, "/mnt/") {
-+                               // WSL path accessing Windows drive - treat as c
-case-insensitive
-+                               adjustedInput = strings.ToLower(input)
-+                               adjustedKey = strings.ToLower(key)
-+                       }
-+
-+                       regexPattern := adjustedKey[len(regexPrefix):]
-+                       match, OK := regex.FindStringMatch(regexPattern, adjuste
-edInput, 1)
-                        if !OK {
-                                continue
-                        }
-@@ -645,7 +660,8 @@ func (pt *Path) replaceMappedLocations(inputPath string) (st
-tring, string) {
-                }
-
-                value := pt.mappedLocations[key]
--               overflow := relative[len(keyRelative):]
-+               // Use normalized relative path for overflow calculation to main
-ntain consistency
-+               overflow := relativeN[len(keyRelative):]
-
-                // exactly match the full path
-                if len(overflow) == 0 {
-@@ -659,7 +675,9 @@ func (pt *Path) replaceMappedLocations(inputPath string) (st
-tring, string) {
-
-                // match several prefix elements
-                if matchSubFolders || overflow[:1] == pt.pathSeparator {        
--                       return value, strings.Trim(escape(overflow), pt.pathSepa
-arator)
-+                       // Use the original relative path for overflow to preser
-rve case
-+                       originalOverflow := relative[len(keyRelative):]
-+                       return value, strings.Trim(escape(originalOverflow), pt.
-.pathSeparator)
-                }
-        }
-
-@@ -750,8 +768,17 @@ func (pt *Path) normalize(inputPath string) string {       
+@@ -750,13 +750,27 @@ func (pt *Path) normalize(inputPath string) string {      
 
         normalized = path.Clean(normalized)
 
-+       // Handle case sensitivity based on filesystem characteristics
-        if pt.env.GOOS() == runtime.WINDOWS || pt.env.GOOS() == runtime.DARWIN {
-+               // Windows and macOS filesystems are typically case-insensitive 
+-       if pt.env.GOOS() == runtime.WINDOWS || pt.env.GOOS() == runtime.DARWIN {
++       // Case-insensitive for Windows, macOS, and WSL mounted drives
++       // WSL mounted drives (/mnt/c/, /mnt/d/, etc.) are case-insensitive desp
+pite Linux being case-sensitive
++       if pt.env.GOOS() == runtime.WINDOWS || pt.env.GOOS() == runtime.DARWIN |
+|| 
++   (pt.env.GOOS() == runtime.LINUX && pt.env.IsWsl() && isWSLMountedPath
+h(normalized)) {
                 normalized = strings.ToLower(normalized)
-+       } else if pt.env.GOOS() == runtime.LINUX {
-+               // Linux is case-sensitive, but WSL accessing Windows drives sho
-ould be case-insensitive
-+               if strings.HasPrefix(normalized, "/mnt/") {
-+                       // WSL path accessing Windows drive - make it case-insen
-nsitive like Windows
-+                       normalized = strings.ToLower(normalized)
-+               }
-+               // Other Linux paths remain case-sensitive (no transformation)  
         }
 
         return normalized
+ }
+
++func isWSLMountedPath(path string) bool {
++       // Check for common WSL mounted path patterns
++       return strings.HasPrefix(path, "/mnt/") ||
++                  strings.HasPrefix(path, "/c/") ||
++                  strings.HasPrefix(path, "/d/") ||
++                  strings.HasPrefix(path, "/e/") ||
++                  strings.HasPrefix(path, "/f/") ||
++                  strings.HasPrefix(path, "/g/") ||
++                  strings.HasPrefix(path, "/h/")
++}
++
+ func (pt *Path) colorizePath(root string, elements []string) string {
+        cycle := pt.props.GetStringArray(Cycle, []string{})
+        skipColorize := len(cycle) == 0
 PS>
 PS>prompt

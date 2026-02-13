@@ -120,6 +120,12 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
                     empty += 1
         print(f"Collected {len(res)} patches with {empty} empty.")
         return res
+
+    def gather_then_save_patch(self):
+        tgt_path = f"output/{self.run_id}/preds.json"
+        with open(tgt_path, "w", encoding = "utf-8") as f:
+            json.dump(self.gather_patch(f"output/{self.run_id}/patch"), f, indent = True)
+        print(f"Patch submissions saved to {os.path.abspath(tgt_path)}")
     
     def rollout(self, instance: dict[str, Any]):
         '''

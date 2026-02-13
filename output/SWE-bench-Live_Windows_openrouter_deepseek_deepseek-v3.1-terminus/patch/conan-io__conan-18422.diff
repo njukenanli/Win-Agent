@@ -1,10 +1,10 @@
 git --no-pager diff HEAD --diff-filter=M --text
 diff --git a/conan/tools/microsoft/nmaketoolchain.py b/conan/tools/microsoft/nma
 aketoolchain.py
-index e7e0151a2..02b85f6be 100644
+index e7e0151a2..c70881666 100644
 --- a/conan/tools/microsoft/nmaketoolchain.py
 +++ b/conan/tools/microsoft/nmaketoolchain.py
-@@ -1,118 +1,127 @@
+@@ -1,118 +1,126 @@
 -
 -from conan.internal import check_duplicated_generator
 -from conan.tools.build.flags import build_type_flags, cppstd_flag, build_type_l
@@ -176,20 +176,18 @@ Always use ``self``.
 +        self.extra_ldflags = []
 +        self.extra_defines = []
 +
-+    def _format_options(self, options):
-+        # Check if we're using clang-cl compiler
++    def _is_clang_cl(self):
++        """Check if we're using clang-cl compiler"""
 +        comp_exes = self._conanfile.conf.get("tools.build:compiler_executables"
-", default={})
-+        clangcl = "clang-cl" in (comp_exes.get("c") or comp_exes.get("cpp", "")
-))                                                                               
-+        
-+        if clangcl:
-+            # For clang-cl, preserve '-' characters in flags
-+            return [opt for opt in options if len(opt) > 1]
-+        else:
-+            # For MSVC, convert '-' to '/' as before
-+            return [f"{opt[0].replace('-', '/')}{opt[1:]}" for opt in options i
-if len(opt) > 1]
+", default={}, check_type=dict)
++        return "clang-cl" in (comp_exes.get("c") or comp_exes.get("cpp", ""))  
++
++    def _format_options(self, options):
++        # Don't transform '-' to '/' for clang-cl flags
++        if self._is_clang_cl():
++            return options
++        return [f"{opt[0].replace('-', '/')}{opt[1:]}" for opt in options if le
+en(opt) > 1]
 +
 +    def _format_defines(self, defines):
 +        formated_defines = []

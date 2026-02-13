@@ -1,13 +1,9 @@
 git --no-pager diff HEAD --diff-filter=M --text
 diff --git a/cmd/crc/cmd/console.go b/cmd/crc/cmd/console.go
-index bdd5c6a38..e31d7f02b 100644
+index bdd5c6a38..3250456c2 100644
 --- a/cmd/crc/cmd/console.go
 +++ b/cmd/crc/cmd/console.go
-@@ -7,9 +7,11 @@ import (
-        "os"
-
-        "github.com/crc-org/crc/v2/pkg/crc/api/client"
-+       crcConfig "github.com/crc-org/crc/v2/pkg/crc/config"
+@@ -10,6 +10,7 @@ import (
         "github.com/crc-org/crc/v2/pkg/crc/daemonclient"
         crcErrors "github.com/crc-org/crc/v2/pkg/crc/errors"
         "github.com/crc-org/crc/v2/pkg/crc/machine/state"
@@ -15,18 +11,24 @@ index bdd5c6a38..e31d7f02b 100644
         "github.com/pkg/browser"
         "github.com/spf13/cobra"
  )
-@@ -67,6 +69,12 @@ func (s *consoleResult) prettyPrintTo(writer io.Writer) error
+@@ -67,6 +68,16 @@ func (s *consoleResult) prettyPrintTo(writer io.Writer) error
 r {
         if s.Error != nil {
                 return s.Error
         }
 +
-+       // Check if cluster config is empty (happens with unsupported presets li
-ike MicroShift)
-+       if s.ClusterConfig == nil || s.ClusterConfig.ClusterType != preset.OpenS
-Shift && s.ClusterConfig.ClusterType != preset.OKD {
-+               return fmt.Errorf("console command is not supported for %s prese
-et", s.ClusterConfig.ClusterType.String())
++       // Check if this is MicroShift preset and console command is not support
+ted
++       if s.ClusterConfig != nil && s.ClusterConfig.ClusterType == preset.Micro
+oshift {
++               if s.consolePrintURL || s.consolePrintCredentials {
++                       // For MicroShift, --url and --credentials flags are als
+so not supported consistently
++                       return errors.New("'crc console' is not supported for Mi
+icroShift preset")
++               }
++               return errors.New("'crc console' is not supported for MicroShift
+t preset")
 +       }
 +
         if s.consolePrintURL {

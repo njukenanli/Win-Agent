@@ -1,39 +1,47 @@
 git --no-pager diff HEAD --diff-filter=M --text
-diff --git a/pkg/machine/wsl/machine.go b/pkg/machine/wsl/machine.go
-index 3355f6b2b5..8e3e9974cc 100644
---- a/pkg/machine/wsl/machine.go
-+++ b/pkg/machine/wsl/machine.go
-@@ -311,16 +311,24 @@ func writeWslConf(dist string, user string) error {       
- }
+diff --git a/pkg/machine/wsl/wutil/wutil.go b/pkg/machine/wsl/wutil/wutil.go
+index bc07ffa2a9..ebad9930fe 100644
+--- a/pkg/machine/wsl/wutil/wutil.go
++++ b/pkg/machine/wsl/wutil/wutil.go
+@@ -89,22 +89,30 @@ func SilentExecCmd(command string, args ...string) *exec.Cmd
+d {
 
- func checkAndInstallWSL(reExec bool) (bool, error) {
--       if wutil.IsWSLInstalled() {
--               return true, nil
--       }
--
-        admin := HasAdminRights()
-
-+       // Check if WSL features are properly enabled first
-+       // This ensures we don't try to import into WSL when features are disabl
-led
-        if !IsWSLFeatureEnabled() {
-+               // If features are not enabled, check if WSL appears to be "inst
-talled"
-+               // This handles the regression case where WSL exe exists but fea
-atures are disabled
-+               if wutil.IsWSLInstalled() {
-+                       return false, attemptFeatureInstall(reExec, admin)      
-+               }
-                return false, attemptFeatureInstall(reExec, admin)
+ func IsWSLInstalled() bool {
+        cmd := SilentExecCmd(FindWSL(), "--status")
+-       out, err := cmd.StdoutPipe()
+-       cmd.Stderr = nil
++       outputBytes, err := cmd.CombinedOutput()
+        if err != nil {
++               // If wsl command fails entirely, WSL is not properly installed 
+                return false
+        }
+-       if err = cmd.Start(); err != nil {
++
++       output := string(outputBytes)
++
++       // Check for errors that indicate features are not enabled
++       if strings.Contains(output, "kernel file is not found") ||
++               strings.Contains(output, "required feature is not installed") ||
++               strings.Contains(output, "HCS_E_SERVICE_NOT_AVAILABLE") {       
+                return false
         }
 
-+       // If features are enabled, check if WSL is fully installed
-+       if wutil.IsWSLInstalled() {
-+               return true, nil
-+       }
-+
-        skip := false
-        if reExec && !admin {
-                fmt.Println("Launching WSL Kernel Install...")
+-       kernelNotFound := matchOutputLine(out, "kernel file is not found")      
+-
+-       if err := cmd.Wait(); err != nil {
+-               return false
++       // Check for successful status indicators
++if strings.Contains(output, "Default Distribution:") ||
++               strings.Contains(output, "WSL version:") ||
++               strings.Contains(output, "Kernel version:") {
++               return true
+        }
+
+-       return !kernelNotFound
++       // If we get ambiguous output, assume it's not properly installed       
++       return false
+ }
+
+ func IsWSLStoreVersionInstalled() bool {
 PS>
 PS>prompt

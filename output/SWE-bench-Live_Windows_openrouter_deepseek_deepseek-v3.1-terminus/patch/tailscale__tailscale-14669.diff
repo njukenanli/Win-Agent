@@ -1,101 +1,32 @@
 git --no-pager diff HEAD --diff-filter=M --text
-diff --git a/cmd/tailscaled/install_windows.go b/cmd/tailscaled/install_windows.
-.go
-index c36418642..3dfcd9955 100644
---- a/cmd/tailscaled/install_windows.go
-+++ b/cmd/tailscaled/install_windows.go
-@@ -33,11 +33,21 @@ func installSystemDaemonWindows(args []string) (err error) {
-
-        service, err := m.OpenService(serviceName)
-        if err == nil {
-+               // Service already exists - handle gracefully for GPO upgrades  
-+               st, serr := service.Query()
-                service.Close()
--               return fmt.Errorf("service %q is already installed", serviceName
-e)
-+
-+               if serr == nil && st.State != svc.Stopped {
-+                       // Service exists and is running - this is expected duri
-ing GPO upgrades
-+                       // Don't fail the installation, just log and continue   
-+                       return nil
-+               }
-+
-+               // For other cases (service exists but not running), proceed cau
-utiously
-+               // but don't fail immediately as this can block GPO deployments 
-        }
-
--       // no such service; proceed to install the service.
-+       // Continue with service installation
-
-        exe, err := os.Executable()
-        if err != nil {
-@@ -58,20 +68,14 @@ func installSystemDaemonWindows(args []string) (err error) {
-        }
-        defer service.Close()
-
--       // Exponential backoff is often too aggressive, so use (mostly)
--       // squares instead.
-+       // Enhanced recovery actions for better GPO compatibility
-        ra := []mgr.RecoveryAction{
--               {mgr.ServiceRestart, 1 * time.Second},
--               {mgr.ServiceRestart, 2 * time.Second},
--               {mgr.ServiceRestart, 4 * time.Second},
--               {mgr.ServiceRestart, 9 * time.Second},
--               {mgr.ServiceRestart, 16 * time.Second},
--               {mgr.ServiceRestart, 25 * time.Second},
--               {mgr.ServiceRestart, 36 * time.Second},
--               {mgr.ServiceRestart, 49 * time.Second},
--               {mgr.ServiceRestart, 64 * time.Second},
-+               {mgr.ServiceRestart, 30 * time.Second}, // Extended delays for G
-GPO
-+               {mgr.ServiceRestart, 60 * time.Second},
-+               {mgr.ServiceRestart, 120 * time.Second},
-+               {mgr.ServiceRestart, 300 * time.Second}, // Final action with lo
-onger delay
-        }
--       const resetPeriodSecs = 60
-+       const resetPeriodSecs = 300 // Longer reset period for GPO
-        err = service.SetRecoveryActions(ra, resetPeriodSecs)
-        if err != nil {
-                return fmt.Errorf("failed to set service recovery actions: %v", 
- err)
-@@ -92,7 +96,8 @@ func uninstallSystemDaemonWindows(args []string) (ret error) {
-
-        service, err := m.OpenService(serviceName)
-        if err != nil {
--               return fmt.Errorf("failed to open %q service: %v", serviceName, 
- err)
-+               // Service doesn't exist - this is acceptable during GPO uninsta
-all
-+               return nil
-        }
-
-        st, err := service.Query()
-@@ -102,6 +107,21 @@ func uninstallSystemDaemonWindows(args []string) (ret error
-r) {
-        }
-        if st.State != svc.Stopped {
-                service.Control(svc.Stop)
-+               // Wait briefly for service to stop during GPO deployments      
-+               ctx, cancel := context.WithTimeout(context.Background(), 30*time
-e.Second)
-+               defer cancel()
-+
-+               for {
-+                       select {
-+                       case <-ctx.Done():
-+                               break
-+                       case <-time.After(2 * time.Second):
-+                               st, err := service.Query()
-+                               if err == nil && st.State == svc.Stopped {      
-+                                       break
-+                               }
-+                       }
-+               }
-        }
-        err = service.Delete()
-        service.Close()
+diff --git a/clientupdate/clientupdate_windows.go b/clientupdate/clientupdate_wi
+indows.go
+index 973722974..343c7dfc1 100644
+--- a/clientupdate/clientupdate_windows.go
++++ b/clientupdate/clientupdate_windows.go
+@@ -162,7 +162,7 @@ func (up *Updater) updateWindows() error {
+ func (up *Updater) installMSI(msi string) error {
+        var err error
+        for tries := 0; tries < 2; tries++ {
+-               cmd := exec.Command("msiexec.exe", "/i", filepath.Base(msi), "/q
+quiet", "/norestart", "/qn")
++               cmd := exec.Command("msiexec.exe", "/i", filepath.Base(msi), "/q
+quiet", "/norestart")
+                cmd.Dir = filepath.Dir(msi)
+                cmd.Stdout = up.Stdout
+                cmd.Stderr = up.Stderr
+@@ -178,7 +178,7 @@ func (up *Updater) installMSI(msi string) error {
+                }
+                // Assume it's a downgrade, which msiexec won't permit. Uninstal
+ll our current version first.
+                up.Logf("Uninstalling current version %q for downgrade...", unin
+nstallVersion)
+-               cmd = exec.Command("msiexec.exe", "/x", msiUUIDForVersion(uninst
+tallVersion), "/norestart", "/qn")
++               cmd = exec.Command("msiexec.exe", "/x", msiUUIDForVersion(uninst
+tallVersion), "/norestart")
+                cmd.Stdout = up.Stdout
+                cmd.Stderr = up.Stderr
+                cmd.Stdin = os.Stdin
 PS>
 PS>prompt

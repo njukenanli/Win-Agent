@@ -1,106 +1,280 @@
 git --no-pager diff HEAD --diff-filter=M --text
-diff --git a/api/types/constants.go b/api/types/constants.go
-index c3afb2fcce..aaa1a6d842 100644
---- a/api/types/constants.go
-+++ b/api/types/constants.go
-@@ -1001,6 +1001,8 @@ const (
-        DiscoveryLabelWindowsIsDomainController = TeleportNamespace + "/is_domai
-in_controller"
-        // DiscoveryLabelWindowsDomain is an Active Directory domain name.      
-        DiscoveryLabelWindowsDomain = TeleportNamespace + "/windows_domain"     
-+       // DiscoveryLabelWindowsCustomRDPPort is the custom RDP port for discove
-ered Windows desktops.
-+       DiscoveryLabelWindowsCustomRDPPort = TeleportNamespace + "/custom_rdp_po
-ort"
-        // DiscoveryLabelLDAPPrefix is the prefix used when applying any custom 
-        // labels per the discovery LDAP attribute labels configuration.        
-        DiscoveryLabelLDAPPrefix = "ldap/"
-@@ -1010,7 +1012,7 @@ const (
- // the sorted labels list to reduce visual clutter. This will generally be auto
-omatically
- // discovered cloud provider labels such as azure/aks-managed-createOperationID
-D=123123123123
- // or internal labels
--var BackSortedLabelPrefixes = []string{CloudAWS, CloudAzure, CloudGCP, Discover
-ryLabelLDAPPrefix, TeleportNamespace}
-+var BackSortedLabelPrefixes = []string{CloudAWS, CloudAzure, CloudGCP, Discover
-ryLabelLDAPPrefix, TeleportNamespace, DiscoveryLabelWindowsCustomRDPPort}        
+diff --git a/lib/config/configuration.go b/lib/config/configuration.go
+index 6aeb06d2f3..a1398e0d1f 100644
+--- a/lib/config/configuration.go
++++ b/lib/config/configuration.go
+@@ -2070,9 +2070,12 @@ func applyWindowsDesktopConfig(fc *FileConfig, cfg *servi
+icecfg.Config) error {
+        }
 
- const (
-        // TeleportInternalLabelPrefix is the prefix used by all Teleport intern
-nal labels. Those labels
+        cfg.WindowsDesktop.Discovery = servicecfg.LDAPDiscoveryConfig{
+-               BaseDN:          fc.WindowsDesktop.Discovery.BaseDN,
+-               Filters:         fc.WindowsDesktop.Discovery.Filters,
+-               LabelAttributes: fc.WindowsDesktop.Discovery.LabelAttributes,   
++               BaseDN:           fc.WindowsDesktop.Discovery.BaseDN,
++               SearchPaths:      fc.WindowsDesktop.Discovery.SearchPaths,      
++               Filters:          fc.WindowsDesktop.Discovery.Filters,
++               LabelAttributes:  fc.WindowsDesktop.Discovery.LabelAttributes,  
++               RDPPort:          fc.WindowsDesktop.Discovery.RDPPort,
++               DiscoveryInterval: fc.WindowsDesktop.Discovery.DiscoveryInterval
+l,
+        }
+
+        var err error
+diff --git a/lib/config/fileconf.go b/lib/config/fileconf.go
+index 44126398a2..34bf4dbb37 100644
+--- a/lib/config/fileconf.go
++++ b/lib/config/fileconf.go
+@@ -2580,7 +2580,11 @@ type LDAPDiscoveryConfig struct {
+        // BaseDN is the base DN to search for desktops.
+        // Use the value '*' to search from the root of the domain,
+        // or leave blank to disable desktop discovery.
++       // Deprecated: Use SearchPaths instead.
+        BaseDN string `yaml:"base_dn"`
++       // SearchPaths is a list of base DNs to search for desktops.
++       // If both BaseDN and SearchPaths are specified, BaseDN will be appended
+d to SearchPaths.
++       SearchPaths []string `yaml:"search_paths"`
+        // Filters are additional LDAP filters to apply to the search.
+        // See: https://ldap.com/ldap-filters/
+        Filters []string `yaml:"filters"`
+@@ -2590,6 +2594,12 @@ type LDAPDiscoveryConfig struct {
+        // discovered desktops having a label with key "ldap/location" and      
+        // the value being the value of the "location" attribute.
+        LabelAttributes []string `yaml:"label_attributes"`
++       // RDPPort is the custom RDP port to use for discovered desktops.       
++       // If not specified, the default port 3389 will be used.
++       RDPPort int `yaml:"rdp_port"`
++       // DiscoveryInterval is the interval at which LDAP discovery runs.      
++       // If not specified, the default interval of 5 minutes will be used.    
++       DiscoveryInterval time.Duration `yaml:"discovery_interval"`
+ }
+
+ // TracingService contains configuration for the tracing_service.
+diff --git a/lib/service/desktop.go b/lib/service/desktop.go
+index 789f50330e..4ce7767044 100644
+--- a/lib/service/desktop.go
++++ b/lib/service/desktop.go
+@@ -235,6 +235,9 @@ func (process *TeleportProcess) initWindowsDesktopServiceReg
+gistered(logger *slog
+                DiscoveryBaseDN:              cfg.WindowsDesktop.Discovery.BaseD
+DN,
+                DiscoveryLDAPFilters:         cfg.WindowsDesktop.Discovery.Filte
+ers,
+                DiscoveryLDAPAttributeLabels: cfg.WindowsDesktop.Discovery.Label
+lAttributes,
++               DiscoverySearchPaths:         cfg.WindowsDesktop.Discovery.Searc
+chPaths,
++               DiscoveryRDPPort:            cfg.WindowsDesktop.Discovery.RDPPor
+rt,
++               DiscoveryInterval:           cfg.WindowsDesktop.Discovery.Discov
+veryInterval,
+                Hostname:                     cfg.Hostname,
+                ConnectedProxyGetter:         proxyGetter,
+                ResourceMatchers:             cfg.WindowsDesktop.ResourceMatcher
+rs,
 diff --git a/lib/service/servicecfg/windows.go b/lib/service/servicecfg/windows.
 .go
-index 988dc16b3e..db8465da2b 100644
+index 988dc16b3e..f577b8bd4b 100644
 --- a/lib/service/servicecfg/windows.go
 +++ b/lib/service/servicecfg/windows.go
-@@ -97,6 +97,10 @@ type LDAPDiscoveryConfig struct {
+@@ -22,6 +22,7 @@ import (
+        "crypto/x509"
+        "maps"
+        "regexp"
++       "time"
+
+        "github.com/gravitational/teleport/lib/limiter"
+        "github.com/gravitational/teleport/lib/services"
+@@ -87,7 +88,11 @@ type LDAPDiscoveryConfig struct {
+        // BaseDN is the base DN to search for desktops.
+        // Use the value '*' to search from the root of the domain,
+        // or leave blank to disable desktop discovery.
++       // Deprecated: Use SearchPaths instead.
+        BaseDN string
++       // SearchPaths is a list of base DNs to search for desktops.
++       // If both BaseDN and SearchPaths are specified, BaseDN will be appended
+d to SearchPaths.
++       SearchPaths []string
+        // Filters are additional LDAP filters to apply to the search.
+        // See: https://ldap.com/ldap-filters/
+        Filters []string
+@@ -97,6 +102,12 @@ type LDAPDiscoveryConfig struct {
         // discovered desktops having a label with key "ldap/location" and      
         // the value being the value of the "location" attribute.
         LabelAttributes []string
-+       // CustomRDPPortAttribute is the LDAP attribute that contains the custom
-m RDP port number
-+       // for discovered Windows desktops. If specified and the attribute exist
-ts on the desktop
-+       // object, Teleport will use this port instead of the default RDP port (
-(3389).
-+       CustomRDPPortAttribute string
++       // RDPPort is the custom RDP port to use for discovered desktops.       
++       // If not specified, the default port 3389 will be used.
++       RDPPort int
++       // DiscoveryInterval is the interval at which LDAP discovery runs.      
++       // If not specified, the default interval of 5 minutes will be used.    
++       DiscoveryInterval time.Duration
  }
 
  // HostLabelRules is a collection of rules describing how to apply labels to ho
 osts.
 diff --git a/lib/srv/desktop/discovery.go b/lib/srv/desktop/discovery.go        
-index ee50a8de2a..abee76cd3c 100644
+index ee50a8de2a..2ebc73dcf0 100644
 --- a/lib/srv/desktop/discovery.go
 +++ b/lib/srv/desktop/discovery.go
-@@ -335,7 +335,22 @@ func (s *WindowsService) ldapEntryToWindowsDesktop(        
+@@ -121,9 +121,7 @@ func (s *WindowsService) startDesktopDiscovery() error {    
+                        s.cfg.Logger.ErrorContext(s.closeCtx, "desktop reconcili
+iation failed", "error", err)
+                }
+
+-               // TODO(zmb3): consider making the discovery period configurable
+-               // (it's currently hard coded to 5 minutes in order to match DB 
+ access discovery behavior)
+-               t := s.cfg.Clock.NewTicker(5 * time.Minute)
++t := s.cfg.Clock.NewTicker(s.cfg.DiscoveryInterval)
+                defer t.Stop()
+                for {
+                        select {
+@@ -168,19 +166,42 @@ func (s *WindowsService) getDesktopsFromLDAP() map[string]
+]types.WindowsDesktop {
+        attrs = append(attrs, computerAttributes...)
+        attrs = append(attrs, s.cfg.DiscoveryLDAPAttributeLabels...)
+
+-       entries, err := s.lc.ReadWithFilter(s.cfg.DiscoveryBaseDN, filter, attrs
+s)
+-       if trace.IsConnectionProblem(err) {
+-               // If the connection was broken, re-initialize the LDAP client s
+so that it's
+-               // ready for the next reconcile loop. Return the last known set 
+ of desktops
+-               // in this case, so that the reconciler doesn't delete the deskt
+tops it already
+-               // knows about.
++       // Use search paths if available, otherwise fall back to base DN        
++       searchPaths := s.cfg.DiscoverySearchPaths
++       if len(searchPaths) == 0 && len(s.cfg.DiscoveryBaseDN) > 0 {
++               searchPaths = []string{s.cfg.DiscoveryBaseDN}
++       }
++
++       var entries []*ldap.Entry
++       var lastErr error
++       var connectionProblem bool
++
++       for _, searchPath := range searchPaths {
++               pathEntries, err := s.lc.ReadWithFilter(searchPath, filter, attr
+rs)
++               if err != nil {
++                       lastErr = err
++                       if trace.IsConnectionProblem(err) {
++                               connectionProblem = true
++                       }
++                       // If one search path fails, log the error but continue 
+ with other paths
++                       s.cfg.Logger.WarnContext(context.Background(), "LDAP sea
+arch failed for path", "path", searchPath, "error", err)
++                       continue
++               }
++               entries = append(entries, pathEntries...)
++       }
++
++       // If we had connection problems and no successful searches, handle the 
+ connection error
++       if connectionProblem && len(entries) == 0 {
+                s.cfg.Logger.InfoContext(context.Background(), "LDAP connection 
+ error when searching for desktops, reinitializing client")
+                if err := s.initializeLDAP(); err != nil {
+                        s.cfg.Logger.ErrorContext(context.Background(), "failed 
+ to reinitialize LDAP client, will retry on next reconcile", "error", err)       
+                }
+                return s.lastDiscoveryResults
+-       } else if err != nil {
+-               s.cfg.Logger.WarnContext(context.Background(), "could not discov
+ver Windows Desktops", "error", err)
++       }
++
++       // If we had errors but some entries were found, log the error but conti
+inue
++       if lastErr != nil && len(entries) == 0 {
++               s.cfg.Logger.WarnContext(context.Background(), "could not discov
+ver Windows Desktops", "error", lastErr)
+                return nil
+        }
+
+@@ -335,7 +356,7 @@ func (s *WindowsService) ldapEntryToWindowsDesktop(
         }
 
         s.cfg.Logger.DebugContext(ctx, "resolved desktop host", "hostname", host
 tname, "addrs", addrs)
 -       addr, err := utils.ParseHostPortAddr(addrs[0], defaults.RDPListenPort)  
-+
-+       // Check if a custom RDP port is specified via LDAP attribute
-+       rdpPort := defaults.RDPListenPort
-+if s.cfg.DiscoveryLDAPCustomRDPPortAttribute != "" {
-+               if customPortStr := entry.GetAttributeValue(s.cfg.DiscoveryLDAPC
-CustomRDPPortAttribute); customPortStr != "" {
-+                       if customPort, err := strconv.Atoi(customPortStr); err =
-== nil && customPort > 0 && customPort <= 65535 {
-+                               rdpPort = customPort
-+                               labels[types.DiscoveryLabelWindowsCustomRDPPort]
-] = customPortStr
-+                               s.cfg.Logger.DebugContext(ctx, "using custom RDP
-P port", "hostname", hostname, "port", rdpPort)
-+                       } else {
-+                               s.cfg.Logger.WarnContext(ctx, "invalid custom RD
-DP port", "hostname", hostname, "port", customPortStr, "error", err)
-+                       }
-+               }
-+       }
-+
-+       addr, err := utils.ParseHostPortAddr(addrs[0], rdpPort)
++       addr, err := utils.ParseHostPortAddr(addrs[0], s.cfg.DiscoveryRDPPort)  
         if err != nil {
                 return nil, trace.Wrap(err)
         }
 diff --git a/lib/srv/desktop/windows_server.go b/lib/srv/desktop/windows_server.
 .go
-index 767c959510..80dc3bcdd2 100644
+index 767c959510..c6d4e604a3 100644
 --- a/lib/srv/desktop/windows_server.go
 +++ b/lib/srv/desktop/windows_server.go
-@@ -212,6 +212,10 @@ type WindowsServiceConfig struct {
+@@ -212,6 +212,15 @@ type WindowsServiceConfig struct {
         // DiscoveryLDAPAttributeLabels are optional LDAP attributes to convert 
         // into Teleport labels.
         DiscoveryLDAPAttributeLabels []string
-+       // DiscoveryLDAPCustomRDPPortAttribute is the LDAP attribute that contai
-ins the custom RDP port number
-+       // for discovered Windows desktops. If specified and the attribute exist
-ts on the desktop
-+       // object, Teleport will use this port instead of the default RDP port (
-(3389).
-+       DiscoveryLDAPCustomRDPPortAttribute string
++       // DiscoverySearchPaths is a list of base DNs to search for desktops.   
++       // If both DiscoveryBaseDN and DiscoverySearchPaths are specified, Disco
+overyBaseDN will be appended to DiscoverySearchPaths.
++       DiscoverySearchPaths []string
++       // DiscoveryRDPPort is the custom RDP port to use for discovered desktop
+ps.
++       // If not specified, the default port 3389 will be used.
++       DiscoveryRDPPort int
++       // DiscoveryInterval is the interval at which LDAP discovery runs.      
++       // If not specified, the default interval of 5 minutes will be used.    
++       DiscoveryInterval time.Duration
         // Hostname of the Windows desktop service
         Hostname string
         // ConnectedProxyGetter gets the proxies teleport is connected to.      
+@@ -235,13 +244,36 @@ type HeartbeatConfig struct {
+ }
+
+ func (cfg *WindowsServiceConfig) checkAndSetDiscoveryDefaults() error {        
+-       switch {
+-       case cfg.DiscoveryBaseDN == types.Wildcard:
+-               cfg.DiscoveryBaseDN = windows.DomainDN(cfg.Domain)
+-       case len(cfg.DiscoveryBaseDN) > 0:
+-               if _, err := ldap.ParseDN(cfg.DiscoveryBaseDN); err != nil {    
+-                       return trace.BadParameter("WindowsServiceConfig contains
+s an invalid base_dn: %v", err)
++       // Handle search paths
++       if len(cfg.DiscoverySearchPaths) == 0 && len(cfg.DiscoveryBaseDN) > 0 { 
++               // If only base_dn is provided, use it as the single search path
++               cfg.DiscoverySearchPaths = []string{cfg.DiscoveryBaseDN}        
++       } else if len(cfg.DiscoverySearchPaths) > 0 && len(cfg.DiscoveryBaseDN) 
+ > 0 {
++               // If both are provided, append base_dn to search_paths for back
+kward compatibility
++               cfg.DiscoverySearchPaths = append(cfg.DiscoverySearchPaths, cfg.
+.DiscoveryBaseDN)
++       }
++
++       // Validate search paths
++       for _, path := range cfg.DiscoverySearchPaths {
++               if path == types.Wildcard {
++                       // Convert wildcard to domain DN
++                       path = windows.DomainDN(cfg.Domain)
+                }
++               if len(path) > 0 {
++                       if _, err := ldap.ParseDN(path); err != nil {
++                               return trace.BadParameter("WindowsServiceConfig 
+ contains an invalid search path %q: %v", path, err)
++                       }
++               }
++       }
++
++       // Set default RDP port if not specified
++       if cfg.DiscoveryRDPPort == 0 {
++               cfg.DiscoveryRDPPort = defaults.RDPListenPort
++       }
++
++       // Set default discovery interval if not specified
++       if cfg.DiscoveryInterval == 0 {
++               cfg.DiscoveryInterval = 5 * time.Minute
+        }
+
+        for _, filter := range cfg.DiscoveryLDAPFilters {
 PS>
 PS>prompt

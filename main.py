@@ -17,14 +17,20 @@ def main(config: dict[str, Any]) -> None:
                   config["max_steps"],
                   config["platform"],
                   run_id)
-    agent.run_dataset(instances)
+    if not config["gather_patch"]:
+        agent.run_dataset(instances)
+    else:
+        print("Dry run to collect exeisting patch submissions...")
+        agent.gather_then_save_patch()
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--config_path", type=str, default="config/default.yaml")
     parser.add_argument("--api_key", type=str, default = "None")
+    parser.add_argument("--collect_patch", action="store_true")
     args = parser.parse_args()
     with open(args.config_path) as f:
         config = yaml.safe_load(f)
     config["api_key"] = args.api_key
+    config["gather_patch"] = args.collect_patch
     main(config)

@@ -1,0 +1,15 @@
+diff --git a/cmd/gf/go.mod b/cmd/gf/go.mod
+index 1adb3f4af..b9a052459 100644
+--- a/cmd/gf/go.mod
++++ b/cmd/gf/go.mod
+@@ -13,8 +13,8 @@ require (
+ 	github.com/gogf/selfupdate v0.0.0-20231215043001-5c48c528462f
+ 	github.com/olekukonko/tablewriter v0.0.5
+ 	github.com/schollz/progressbar/v3 v3.15.0
+-	golang.org/x/mod v0.25.0
+-	golang.org/x/tools v0.34.0
++	golang.org/x/mod v0.26.0
++	golang.org/x/tools v0.33.0
+ )
+ 
+ require (

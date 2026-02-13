@@ -1,62 +1,143 @@
 git --no-pager diff HEAD --diff-filter=M --text
 diff --git a/pkg/commands/git_commands/config.go b/pkg/commands/git_commands/con
 nfig.go
-index 5ea8f91d7..7a2d0f68d 100644
+index 5ea8f91d7..2fe3e3305 100644
 --- a/pkg/commands/git_commands/config.go
 +++ b/pkg/commands/git_commands/config.go
-@@ -68,6 +68,16 @@ func (self *ConfigCommands) UsingGpg() bool {
-        return self.gitConfig.GetBool("commit.gpgsign")
+@@ -112,6 +112,10 @@ func (self *ConfigCommands) GetRebaseUpdateRefs() bool {   
+        return self.gitConfig.GetBool("rebase.updateRefs")
  }
 
-+// UsingTagGpgSign tells us whether the user has tag gpg signing enabled       
-+func (self *ConfigCommands) UsingTagGpgSign() bool {
-+       overrideGpg := self.UserConfig().Git.OverrideGpg
-+       if overrideGpg {
-+               return false
-+       }
-+
-+       return self.gitConfig.GetBool("tag.gpgsign")
++func (self *ConfigCommands) GetTagGpgSign() bool {
++       return self.gitConfig.GetBool("tag.gpgSign")
 +}
 +
- func (self *ConfigCommands) GetCoreEditor() string {
-        return self.gitConfig.Get("core.editor")
+ func (self *ConfigCommands) DropConfigCache() {
+        self.gitConfig.DropCache()
  }
 diff --git a/pkg/gui/controllers/helpers/tags_helper.go b/pkg/gui/controllers/he
 elpers/tags_helper.go
-index aa6ff7740..5af7bcfb1 100644
+index aa6ff7740..36ce14797 100644
 --- a/pkg/gui/controllers/helpers/tags_helper.go
 +++ b/pkg/gui/controllers/helpers/tags_helper.go
-@@ -28,9 +28,19 @@ func (self *TagsHelper) OpenCreateTagPrompt(ref string, onCre
-eate func()) error {
-                                        return err
-                                }
-                        } else {
--                               self.c.LogAction(self.c.Tr.Actions.CreateLightwe
-eightTag)
--                               if err := self.c.Git().Tag.CreateLightweight(tag
-gName, ref, force); err != nil {
--                                       return err
-+                               // Check if tag.gpgsign is enabled
-+                               if self.c.Git().Config.UsingTagGpgSign() {      
-+                                       // If tag.gpgsign is true and descriptio
-on is empty, Git will try to open an editor
-+                                       // for the tag message. To avoid hanging
-g, we should force an annotated tag with a default message
-+                                       self.c.LogAction(self.c.Tr.Actions.Creat
-teAnnotatedTag)
-+                                       if err := self.c.Git().Tag.CreateAnnotat
-ted(tagName, ref, "Signed tag", force); err != nil {
-+                                               return err
-+                                       }
-+                               } else {
-+                                       self.c.LogAction(self.c.Tr.Actions.Creat
-teLightweightTag)
-+                                       if err := self.c.Git().Tag.CreateLightwe
-eight(tagName, ref, force); err != nil {
-+                                               return err
-+                                       }
-                                }
-                        }
+@@ -19,6 +19,26 @@ func NewTagsHelper(c *HelperCommon, commitsHelper *CommitsHel
+lper) *TagsHelper {
+        }
+ }
 
++func (self *TagsHelper) promptForForceTag(tagName string, description string, d
+doCreateTag func(string, string, bool) error) error {
++       prompt := utils.ResolvePlaceholderString(
++               self.c.Tr.ForceTagPrompt,
++               map[string]string{
++                       "tagName":    tagName,
++                       "cancelKey":  self.c.UserConfig().Keybinding.Universal.R
+Return,
++                       "confirmKey": self.c.UserConfig().Keybinding.Universal.C
+Confirm,
++               },
++       )
++       self.c.Confirm(types.ConfirmOpts{
++               Title:  self.c.Tr.ForceTag,
++               Prompt: prompt,
++               HandleConfirm: func() error {
++                       return doCreateTag(tagName, description, true)
++               },
++       })
++
++       return nil
++}
++
+ func (self *TagsHelper) OpenCreateTagPrompt(ref string, onCreate func()) error 
+ {
+        doCreateTag := func(tagName string, description string, force bool) erro
+or {
+                return self.c.WithWaitingStatus(self.c.Tr.CreatingTag, func(gocu
+ui.Task) error {
+@@ -43,26 +63,38 @@ func (self *TagsHelper) OpenCreateTagPrompt(ref string, onCr
+reate func()) error {
+        }
+
+        onConfirm := func(tagName string, description string) error {
+-               if self.c.Git().Tag.HasTag(tagName) {
++               // Check if tag.gpgSign is enabled and description is empty     
++               tagGpgSignEnabled := self.c.Git().Config.GetTagGpgSign()        
++               if tagGpgSignEnabled && description == "" {
++                       // When tag.gpgSign is enabled and description is empty,
+, Git will try to open
++                       // an editor for the tag message, which can cause lazygi
+it to hang.
++// Warn the user and require a description.
+                        prompt := utils.ResolvePlaceholderString(
+-                               self.c.Tr.ForceTagPrompt,
++                               self.c.Tr.TagGpgSignWarningPrompt,
+                                map[string]string{
+-                                       "tagName":    tagName,
+                                        "cancelKey":  self.c.UserConfig().Keybin
+nding.Universal.Return,
+                                        "confirmKey": self.c.UserConfig().Keybin
+nding.Universal.Confirm,
+                                },
+                        )
+                        self.c.Confirm(types.ConfirmOpts{
+-                               Title:  self.c.Tr.ForceTag,
++                               Title:  self.c.Tr.TagGpgSignWarningTitle,       
+                                Prompt: prompt,
+                                HandleConfirm: func() error {
+-                                       return doCreateTag(tagName, description,
+, true)
++                                       // User confirmed, proceed with empty de
+escription
++                                       // This will still likely fail/hang, but
+t we warned them
++                                       if self.c.Git().Tag.HasTag(tagName) {   
++                                               return self.promptForForceTag(ta
+agName, description, doCreateTag)
++                                       }
++                                       return doCreateTag(tagName, description,
+, false)
+                                },
+                        })
+-
+                        return nil
+                }
+
++               if self.c.Git().Tag.HasTag(tagName) {
++                       return self.promptForForceTag(tagName, description, doCr
+reateTag)
++               }
++
+                return doCreateTag(tagName, description, false)
+        }
+
+diff --git a/pkg/i18n/english.go b/pkg/i18n/english.go
+index e4708becc..862615891 100644
+--- a/pkg/i18n/english.go
++++ b/pkg/i18n/english.go
+@@ -542,6 +542,8 @@ type TranslationSet struct {
+        CreatingTag                           string
+        ForceTag                              string
+        ForceTagPrompt                        string
++       TagGpgSignWarningTitle               string
++       TagGpgSignWarningPrompt               string
+        FetchRemoteTooltip                    string
+        FetchingRemoteStatus                  string
+        CheckoutCommit                        string
+@@ -1590,6 +1592,8 @@ func EnglishTranslationSet() *TranslationSet {
+                CreatingTag:                    "Creating tag",
+                ForceTag:                       "Force Tag",
+                ForceTagPrompt:                 "The tag '{{.tagName}}' exists a
+already. Press {{.cancelKey}} to cancel, or {{.confirmKey}} to overwrite.",      
++               TagGpgSignWarningTitle:        "Tag GPG Sign Warning",
++               TagGpgSignWarningPrompt:       "You have tag.gpgSign enabled in 
+ your Git configuration but are trying to create a lightweight tag without a desc
+cription. Git will try to open an editor for the tag message, which may cause laz
+zygit to hang.\n\nPress {{.confirmKey}} to proceed anyway, or {{.cancelKey}} to c
+cancel and add a description.",
+                FetchRemoteTooltip:             "Fetch updates from the remote r
+repository. This retrieves new commits and branches without merging them into you
+ur local branches.",
+                FetchingRemoteStatus:           "Fetching remote",
+                CheckoutCommit:                 "Checkout commit",
 PS>
 PS>prompt
