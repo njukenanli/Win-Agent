@@ -31,6 +31,13 @@ $env:PYTHONIOENCODING="utf-8"
 python main.py --config_path config/default.yaml --api_key ...
 ```
 
+Patch submissions will be saved to output/{run_id}/preds.json
+
+If the rollout is interrupted, to collect existing patches instead of proceeding to rollout, please use the following flag for dry run.
+
+```bash
+python main.py --config_path config/default.yaml --collect_patch 
+```
 
 ## Customize tool set
 
