@@ -1,3 +1,0 @@
-git --no-pager diff HEAD --diff-filter=M --text
-PS>
-PS>prompt
