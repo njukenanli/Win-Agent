@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
+import os
+import time
 from typing import Any
 from src.runtime import Runtime
+from src.utils import Utils
 import uuid
 
 class Tool(ABC):
@@ -13,9 +16,12 @@ class Tool(ABC):
 
     @staticmethod
     def reset_cwd(container: Runtime) -> None: 
-        goto_cwd = r"cd C:\testbed  " if container.platform == "windows" else "cd /testbed  "
-        container.send_command(goto_cwd)
+        Utils.reset_cwd(container)
     
     @staticmethod
     def temp_file() -> str:
         return f"mnt/{uuid.uuid4()}.txt"
+    
+    @staticmethod
+    def safe_read(path: str) -> str:
+        return Utils.safe_read(path)

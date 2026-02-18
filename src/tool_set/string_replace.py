@@ -56,8 +56,6 @@ class Replace(Tool):
         
         command = f"python -m mnt.replace --path_file {path_file} --old_file {old_file} --new_file {new_file} --output_file {output_file}"
         container.send_command(command)
-        time.sleep(16) # allow time for file write op sync between host and container.
-        with open(output_file, encoding = "utf-8") as f:
-            res = f.read()
+        res = Tool.safe_read(output_file)
         container.send_command(f"rm {path_file} ; rm {old_file} ; rm {new_file} ; rm {output_file}")
         return res
