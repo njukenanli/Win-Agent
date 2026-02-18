@@ -1,0 +1,79 @@
+diff --git a/src/segments/path.go b/src/segments/path.go
+index a59ec51e..09940d87 100644
+--- a/src/segments/path.go
++++ b/src/segments/path.go
+@@ -620,13 +620,32 @@ func (pt *Path) replaceMappedLocations(inputPath string) (string, string) {
+ 	for _, key := range keys {
+ 		if strings.HasPrefix(key, regexPrefix) {
+ 			input := strings.ReplaceAll(inputPath, `\`, `/`)
+-			match, OK := regex.FindStringMatch(key[len(regexPrefix):], input, 1)
++			
++			// For case-insensitive systems (Windows, Darwin), normalize the input
++			// for regex matching to handle folder case variations
++			regexPattern := key[len(regexPrefix):]
++			matchInput := input
++			if pt.env.GOOS() == runtime.WINDOWS || pt.env.GOOS() == runtime.DARWIN {
++				matchInput = strings.ToLower(input)
++				regexPattern = strings.ToLower(regexPattern)
++			}
++			
++			match, OK := regex.FindStringMatch(regexPattern, matchInput, 1)
+ 			if !OK {
+ 				continue
+ 			}
+ 
+ 			// Replace the first match with the mapped location.
+-			input = strings.Replace(input, match, pt.mappedLocations[key], 1)
++			// Find the position of the match in the normalized string
++			matchPos := strings.Index(matchInput, match)
++			if matchPos >= 0 {
++				// Use the same position and length to extract from the original input
++				originalMatch := input[matchPos : matchPos+len(match)]
++				input = strings.Replace(input, originalMatch, pt.mappedLocations[key], 1)
++			} else {
++				// Fallback to replacing the match directly (shouldn't happen)
++				input = strings.Replace(input, match, pt.mappedLocations[key], 1)
++			}
+ 			input = path.Clean(input)
+ 			return pt.parsePath(input)
+ 		}
+diff --git a/src/segments/path_unix_test.go b/src/segments/path_unix_test.go
+index c5817402..a9a02a8e 100644
+--- a/src/segments/path_unix_test.go
++++ b/src/segments/path_unix_test.go
+@@ -634,6 +634,10 @@ var testFullPathCustomMappedLocationsCases = []testFullPathCustomMappedLocations
+ 	{Pwd: homeDir + abcd, MappedLocations: map[string]string{"~/a/b": "#"}, Expected: "#/c/d"},
+ 	{Pwd: "/a" + homeDir + "/b/c/d", MappedLocations: map[string]string{"/a~": "#"}, Expected: "/a" + homeDir + "/b/c/d"},
+ 	{Pwd: homeDir + abcd, MappedLocations: map[string]string{"/a/b": "#"}, Expected: homeDir + abcd},
++	// Test case-insensitive regex matching on Darwin
++	{Pwd: "/Users/test/Documents/GitHub/project", MappedLocations: map[string]string{`re:(.*Users/test/Documents/GitHub).*`: "github"}, GOOS: runtime.DARWIN, Expected: "github/project"},
++	{Pwd: "/Users/test/Documents/github/project", MappedLocations: map[string]string{`re:(.*Users/test/Documents/GitHub).*`: "github"}, GOOS: runtime.DARWIN, Expected: "github/project"},
++	{Pwd: "/Users/test/Documents/GITHUB/project", MappedLocations: map[string]string{`re:(.*Users/test/Documents/GitHub).*`: "github"}, GOOS: runtime.DARWIN, Expected: "github/project"},
+ }
+ 
+ var testSplitPathCases = []testSplitPathCase{
+diff --git a/src/segments/path_windows_test.go b/src/segments/path_windows_test.go
+index a4bd79be..779a03cf 100644
+--- a/src/segments/path_windows_test.go
++++ b/src/segments/path_windows_test.go
+@@ -448,6 +448,20 @@ var testFullPathCustomMappedLocationsCases = []testFullPathCustomMappedLocations
+ 		PathSeparator:   `\`,
+ 		Expected:        `github\project`,
+ 	},
++	{
++		Pwd:             `C:\Users\taylo\Documents\github\project`,
++		MappedLocations: map[string]string{`re:(.*Users/taylo/Documents/GitHub).*`: "github"},
++		GOOS:            runtime.WINDOWS,
++		PathSeparator:   `\`,
++		Expected:        `github\project`,
++	},
++	{
++		Pwd:             `C:\Users\taylo\Documents\GITHUB\project`,
++		MappedLocations: map[string]string{`re:(.*Users/taylo/Documents/GitHub).*`: "github"},
++		GOOS:            runtime.WINDOWS,
++		PathSeparator:   `\`,
++		Expected:        `github\project`,
++	},
+ }
+ 
+ var testSplitPathCases = []testSplitPathCase{

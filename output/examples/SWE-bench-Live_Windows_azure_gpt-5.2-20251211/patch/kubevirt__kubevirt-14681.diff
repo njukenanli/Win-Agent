@@ -1,0 +1,101 @@
+
+diff --git a/pkg/virt-launcher/virtwrap/converter/converter.go b/pkg/virt-launch
+her/virtwrap/converter/converter.go
+index 3d4f4b8be0..87b0af216d 100644
+--- a/pkg/virt-launcher/virtwrap/converter/converter.go
++++ b/pkg/virt-launcher/virtwrap/converter/converter.go
+@@ -1232,17 +1232,23 @@ func Convert_v1_Firmware_To_related_apis(vmi *v1.Virtual
+lMachineInstance, domain
+        }
+
+        if firmware.ACPI != nil {
+-               path, err := getSlicMountedPath(vmi.Spec.Volumes, firmware.ACPI.
+.SlicNameRef)
+-               if err != nil {
+-                       log.Log.Object(vmi).Warningf("Failed to get supported pa
+ath for Volume: %s", firmware.ACPI.SlicNameRef)
+-                       return err
++               if firmware.ACPI.SlicNameRef != "" {
++                       path, err := getAcpiTableMountedPath(vmi.Spec.Volumes, f
+firmware.ACPI.SlicNameRef, "slic", "slic.bin")
++                       if err != nil {
++                               log.Log.Object(vmi).Warningf("Failed to get supp
+ported path for Volume: %s", firmware.ACPI.SlicNameRef)
++                               return err
++                       }
++
++                       domain.Spec.OS.ACPI = &api.OSACPI{Table: api.ACPITable{T
+Type: "slic", Path: path}}
+                }
++               if firmware.ACPI.MsdmNameRef != "" {
++                       path, err := getAcpiTableMountedPath(vmi.Spec.Volumes, f
+firmware.ACPI.MsdmNameRef, "msdm", "msdm.bin")
++                       if err != nil {
++                               log.Log.Object(vmi).Warningf("Failed to get supp
+ported path for Volume: %s", firmware.ACPI.MsdmNameRef)
++                               return err
++                       }
+
+-               domain.Spec.OS.ACPI = &api.OSACPI{
+-                       Table: api.ACPITable{
+-                               Type: "slic",
+-                               Path: path,
+-                       },
++                       domain.Spec.OS.ACPI = &api.OSACPI{Table: api.ACPITable{T
+Type: "msdm", Path: path}}
+                }
+        }
+
+@@ -1250,22 +1256,25 @@ func Convert_v1_Firmware_To_related_apis(vmi *v1.Virtual
+lMachineInstance, domain
+ }
+
+ func getSlicMountedPath(volumes []v1.Volume, name string) (string, error) {    
+-       // We need to know the the volume type referred by @name
++       return getAcpiTableMountedPath(volumes, name, "slic", "slic.bin")       
++}
++
++func getAcpiTableMountedPath(volumes []v1.Volume, name, tableType, fileName str
+ring) (string, error) {
++       // We need to know the volume type referred by @name
+        for _, volume := range volumes {
+                if volume.Name != name {
+                        continue
+                }
+
+                if volume.Secret == nil {
+-                       return "", fmt.Errorf("Firmware's slic volume type is un
+nsupported")
++                       return "", fmt.Errorf("Firmware's %s volume type is unsu
+upported", tableType)
+                }
+
+-               // Return path to slic binary data
+                sourcePath := config.GetSecretSourcePath(name)
+-               return filepath.Join(sourcePath, "slic.bin"), nil
++               return filepath.Join(sourcePath, fileName), nil
+        }
+
+-       return "", fmt.Errorf("Firmware's slic volume type not found")
++       return "", fmt.Errorf("Firmware's %s volume type not found", tableType) 
+ }
+
+ func hasIOThreads(vmi *v1.VirtualMachineInstance) bool {
+diff --git a/staging/src/kubevirt.io/api/core/v1/schema.go b/staging/src/kubevir
+rt.io/api/core/v1/schema.go
+index 12043dc9f8..f4417fc6f6 100644
+--- a/staging/src/kubevirt.io/api/core/v1/schema.go
++++ b/staging/src/kubevirt.io/api/core/v1/schema.go
+@@ -440,6 +440,9 @@ type ACPI struct {
+        // be a binary blob that follows the ACPI SLIC standard, see:
+        // https://learn.microsoft.com/en-us/previous-versions/windows/hardware/
+/design/dn653305(v=vs.85)
+        SlicNameRef string `json:"slicNameRef,omitempty"`
++       // MsdmNameRef should match the volume name of a secret object. The data
+a in the secret should
++       // be a binary blob that follows the ACPI MSDM standard.
++       MsdmNameRef string `json:"msdmNameRef,omitempty"`
+ }
+
+ type Devices struct {
+

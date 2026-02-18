@@ -1,0 +1,15 @@
+diff --git a/cmd/tailscaled/tailscaled_windows.go b/cmd/tailscaled/tailscaled_windows.go
+index 786c5d833..2cd70c5c7 100644
+--- a/cmd/tailscaled/tailscaled_windows.go
++++ b/cmd/tailscaled/tailscaled_windows.go
+@@ -143,6 +143,10 @@ func runWindowsService(pol *logpolicy.Policy) error {
+ 		defer syslog.Close()
+ 	}
+ 
++	if isWindowsService() {
++		return svc.Run(serviceName, &ipnService{Policy: pol})
++	}
++
+ 	syslogf("Service entering svc.Run")
+ 	defer syslogf("Service exiting svc.Run")
+ 	return svc.Run(serviceName, &ipnService{Policy: pol})

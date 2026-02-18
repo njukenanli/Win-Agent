@@ -1,0 +1,82 @@
+
+diff --git a/cmd/crc/cmd/console.go b/cmd/crc/cmd/console.go
+index bdd5c6a38..d2a9edf1e 100644
+--- a/cmd/crc/cmd/console.go
++++ b/cmd/crc/cmd/console.go
+@@ -44,6 +44,9 @@ func showConsole(client *daemonclient.Client) (*client.Console
+eResult, error) {
+
+ func runConsole(writer io.Writer, client *daemonclient.Client, consolePrintURL,
+, consolePrintCredentials bool, outputFormat string) error {
+        result, err := showConsole(client)
++       if err == nil && result != nil && result.ClusterConfig.ClusterType == "m
+microshift" {
++               return errors.New("'crc console' is not supported with the micro
+oshift preset")
++       }
+        return render(&consoleResult{
+                Success:                 err == nil,
+                state:                   toState(result),
+diff --git a/cmd/crc/cmd/console_test.go b/cmd/crc/cmd/console_test.go
+index 0910dfb80..2e6730111 100644
+--- a/cmd/crc/cmd/console_test.go
++++ b/cmd/crc/cmd/console_test.go
+@@ -25,6 +25,16 @@ var DummyClusterConfig = types.ClusterConfig{
+        ProxyConfig:   nil,
+ }
+
++var DummyMicroshiftClusterConfig = types.ClusterConfig{
++       ClusterType:   "microshift",
++       ClusterCACert: "MIIDODCCAiCgAwIBAgIIRVfCKNUa1wIwDQYJ",
++       KubeConfig:    "/tmp/kubeconfig",
++       KubeAdminPass: "",
++       ClusterAPI:    "https://microshift.testing:6443",
++       WebConsoleURL: "",
++       ProxyConfig:   nil,
++}
++
+ func setUpClientForConsole(t *testing.T) *daemonclient.Client {
+        client := mocks.NewClient(t)
+
+@@ -48,6 +58,19 @@ func setUpFailingClientForConsole(t *testing.T) *daemonclient
+t.Client {
+        }
+ }
+
++func setUpClientForMicroshiftConsole(t *testing.T) *daemonclient.Client {      
++       client := mocks.NewClient(t)
++
++       client.On("WebconsoleURL").Return(
++               &apiTypes.ConsoleResult{
++                       ClusterConfig: DummyMicroshiftClusterConfig,
++                       State:         state.Running,
++               }, nil)
++       return &daemonclient.Client{
++               APIClient: client,
++       }
++}
++
+ func TestConsolePlainSuccess(t *testing.T) {
+        out := new(bytes.Buffer)
+        assert.NoError(t, runConsole(out, setUpClientForConsole(t), true, false,
+, ""))
+@@ -78,6 +101,16 @@ To login as an admin, run 'oc login -u kubeadmin -p %s %s'  
+        assert.Equal(t, expectedOut, out.String())
+ }
+
++func TestConsoleMicroshiftUnsupported(t *testing.T) {
++       out := new(bytes.Buffer)
++       assert.EqualError(t, runConsole(out, setUpClientForMicroshiftConsole(t),
+, false, false, ""), "'crc console' is not supported with the microshift preset")
++}
++
++func TestConsoleMicroshiftCredentialsUnsupported(t *testing.T) {
++       out := new(bytes.Buffer)
++       assert.EqualError(t, runConsole(out, setUpClientForMicroshiftConsole(t),
+, false, true, ""), "'crc console' is not supported with the microshift preset") 
++}
++
+ func TestConsoleJSONSuccess(t *testing.T) {
+        expectedJSONOut := fmt.Sprintf(`{
+   "success": true,
+

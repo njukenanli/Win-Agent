@@ -1,0 +1,257 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 94b1c9bfe..7eecbbc03 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -508,6 +508,7 @@ if(MSVC AND TARGET SDL3-shared)
+   elseif(SDL_CPU_ARM32 OR SDL_CPU_ARM64)
+     # FIXME: ARM assembler (armasm.exe/armasm64.exe) is NOT ASM_MASM, and does 
+ currently not work with CMake
+     # (https://gitlab.kitware.com/cmake/cmake/-/issues/18912)
++    # For now, we rely on the C implementation with inline assembly in SDL_msli
+ibc.c
+   endif()
+ endif()
+
+diff --git a/VisualC/SDL/SDL.vcxproj b/VisualC/SDL/SDL.vcxproj
+index e860035ae..a00434a13 100644
+--- a/VisualC/SDL/SDL.vcxproj
++++ b/VisualC/SDL/SDL.vcxproj
+@@ -9,6 +9,10 @@
+       <Configuration>Debug</Configuration>
+       <Platform>x64</Platform>
+     </ProjectConfiguration>
++    <ProjectConfiguration Include="Debug|ARM64">
++      <Configuration>Debug</Configuration>
++      <Platform>ARM64</Platform>
++    </ProjectConfiguration>
+     <ProjectConfiguration Include="Release|Win32">
+       <Configuration>Release</Configuration>
+       <Platform>Win32</Platform>
+@@ -17,6 +21,10 @@
+       <Configuration>Release</Configuration>
+       <Platform>x64</Platform>
+     </ProjectConfiguration>
++    <ProjectConfiguration Include="Release|ARM64">
++      <Configuration>Release</Configuration>
++      <Platform>ARM64</Platform>
++    </ProjectConfiguration>
+   </ItemGroup>
+   <PropertyGroup Label="Globals">
+     <ProjectName>SDL3</ProjectName>
+@@ -41,6 +49,14 @@
+     <ConfigurationType>DynamicLibrary</ConfigurationType>
+     <PlatformToolset Condition="'$(VisualStudioVersion)' != '10.0'">$(DefaultPl
+latformToolset)</PlatformToolset>
+   </PropertyGroup>
++  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'" La
+abel="Configuration">
++    <ConfigurationType>DynamicLibrary</ConfigurationType>
++    <PlatformToolset Condition="'$(VisualStudioVersion)' != '10.0'">$(DefaultPl
+latformToolset)</PlatformToolset>
++  </PropertyGroup>
++  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'" Labe
+el="Configuration">
++    <ConfigurationType>DynamicLibrary</ConfigurationType>
++    <PlatformToolset Condition="'$(VisualStudioVersion)' != '10.0'">$(DefaultPl
+latformToolset)</PlatformToolset>
++  </PropertyGroup>
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+   <ImportGroup Label="ExtensionSettings">
+     <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />       
+@@ -57,6 +73,12 @@
+   <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="P
+PropertySheets">
+     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condi
+ition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="Loca
+alAppDataPlatform" />
+   </ImportGroup>
++  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'" Labe
+el="PropertySheets">
++    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condi
+ition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="Loca
+alAppDataPlatform" />
++  </ImportGroup>
++  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'" Label=
+="PropertySheets">
++    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condi
+ition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="Loca
+alAppDataPlatform" />
++  </ImportGroup>
+   <PropertyGroup Label="UserMacros" />
+   <PropertyGroup>
+     <_ProjectFileVersion>10.0.40219.1</_ProjectFileVersion>
+@@ -68,6 +90,10 @@
+     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(Platf
+form)\$(Configuration)\</IntDir>
+     <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(Solutio
+onDir)$(Platform)\$(Configuration)\</OutDir>
+     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(Platfor
+rm)\$(Configuration)\</IntDir>
++    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">$(Solut
+tionDir)$(Platform)\$(Configuration)\</OutDir>
++    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">$(Platf
+form)\$(Configuration)\</IntDir>
++    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">$(Solutio
+onDir)$(Platform)\$(Configuration)\</OutDir>
++    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">$(Platfor
+rm)\$(Configuration)\</IntDir>
+     <CodeAnalysisRuleSet Condition="'$(Configuration)|$(Platform)'=='Debug|Win3
+32'">AllRules.ruleset</CodeAnalysisRuleSet>
+     <CodeAnalysisRules Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'
+'" />
+     <CodeAnalysisRuleAssemblies Condition="'$(Configuration)|$(Platform)'=='Deb
+bug|Win32'" />
+@@ -94,6 +120,12 @@
+   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">    
+     <IncludePath>$(ProjectDir)/../../src;$(IncludePath)</IncludePath>
+   </PropertyGroup>
++  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">    
++    <IncludePath>$(ProjectDir)/../../src;$(IncludePath)</IncludePath>
++  </PropertyGroup>
++  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">  
++    <IncludePath>$(ProjectDir)/../../src;$(IncludePath)</IncludePath>
++  </PropertyGroup>
+   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'
+'">
+     <PreBuildEvent>
+       <Command>
+@@ -161,6 +193,69 @@
+       <SubSystem>Windows</SubSystem>
+     </Link>
+   </ItemDefinitionGroup>
++  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'
+'">
++    <Midl>
++      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorD
+Definitions>
++      <MkTypLibCompatible>true</MkTypLibCompatible>
++      <SuppressStartupBanner>true</SuppressStartupBanner>
++      <TargetEnvironment>ARM64</TargetEnvironment>
++      <TypeLibraryName>.\Debug/SDL.tlb</TypeLibraryName>
++    </Midl>
++    <ClCompile>
++      <Optimization>Disabled</Optimization>
++      <AdditionalIncludeDirectories>$(ProjectDir)/../../include;$(ProjectDir)/.
+../../include/build_config;%(AdditionalIncludeDirectories)</AdditionalIncludeDire
+ectories>
++      <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsin
+ngDirectories>
++      <PreprocessorDefinitions>DLL_EXPORT;_DEBUG;_WINDOWS;%(PreprocessorDefinit
+tions)</PreprocessorDefinitions>
++      <BufferSecurityCheck>false</BufferSecurityCheck>
++      <WarningLevel>Level3</WarningLevel>
++      <DebugInformationFormat>OldStyle</DebugInformationFormat>
++      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>    
++      <PrecompiledHeader>Use</PrecompiledHeader>
++      <PrecompiledHeaderFile>SDL_internal.h</PrecompiledHeaderFile>
++      <MultiProcessorCompilation>true</MultiProcessorCompilation>
++      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
++    </ClCompile>
++    <ResourceCompile>
++      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorD
+Definitions>
++    </ResourceCompile>
++    <Link>
++      <AdditionalDependencies>setupapi.lib;winmm.lib;imm32.lib;version.lib;%(Ad
+dditionalDependencies)</AdditionalDependencies>
++      <GenerateDebugInformation>true</GenerateDebugInformation>
++      <SubSystem>Windows</SubSystem>
++    </Link>
++  </ItemDefinitionGroup>
++  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM6
+64'">
++    <Midl>
++      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorD
+Definitions>
++      <MkTypLibCompatible>true</MkTypLibCompatible>
++      <SuppressStartupBanner>true</SuppressStartupBanner>
++      <TargetEnvironment>ARM64</TargetEnvironment>
++      <TypeLibraryName>.\Release/SDL.tlb</TypeLibraryName>
++    </Midl>
++    <ClCompile>
++      <AdditionalIncludeDirectories>$(ProjectDir)/../../include;$(ProjectDir)/.
+../../include/build_config;%(AdditionalIncludeDirectories)</AdditionalIncludeDire
+ectories>
++      <AdditionalUsingDirectories>%(AdditionalUsingDirectories)</AdditionalUsin
+ngDirectories>
++      <PreprocessorDefinitions>DLL_EXPORT;NDEBUG;_WINDOWS;%(PreprocessorDefinit
+tions)</PreprocessorDefinitions>
++      <BufferSecurityCheck>false</BufferSecurityCheck>
++      <WarningLevel>Level3</WarningLevel>
++      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
++      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>    
++      <PrecompiledHeader>Use</PrecompiledHeader>
++      <PrecompiledHeaderFile>SDL_internal.h</PrecompiledHeaderFile>
++      <MultiProcessorCompilation>true</MultiProcessorCompilation>
++      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
++    </ClCompile>
++    <ResourceCompile>
++      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorD
+Definitions>
++    </ResourceCompile>
++    <Link>
++      <AdditionalDependencies>setupapi.lib;winmm.lib;imm32.lib;version.lib;%(Ad
+dditionalDependencies)</AdditionalDependencies>
++      <GenerateDebugInformation>true</GenerateDebugInformation>
++      <SubSystem>Windows</SubSystem>
++      <OptimizeReferences>true</OptimizeReferences>
++      <EnableCOMDATFolding>true</EnableCOMDATFolding>
++    </Link>
++  </ItemDefinitionGroup>
+   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win3
+32'">
+     <PreBuildEvent>
+       <Command>
+@@ -650,6 +745,9 @@
+     <MASM Condition="'$(Platform)'=='x64'" Include="..\..\src\stdlib\SDL_mslibc
+c_x64.masm">
+       <PrecompiledHeader>NotUsing</PrecompiledHeader>
+     </MASM>
++    <MASM Condition="'$(Platform)'=='ARM64'" Include="..\..\src\stdlib\SDL_msli
+ibc_arm64.masm">
++      <PrecompiledHeader>NotUsing</PrecompiledHeader>
++    </MASM>
+   <ClCompile Include="..\..\src\stdlib\SDL_murmur3.c" />
+     <ClCompile Include="..\..\src\stdlib\SDL_qsort.c" />
+     <ClCompile Include="..\..\src\stdlib\SDL_random.c" />
+diff --git a/src/stdlib/SDL_mslibc.c b/src/stdlib/SDL_mslibc.c
+index a527bf75d..c94cef90b 100644
+--- a/src/stdlib/SDL_mslibc.c
++++ b/src/stdlib/SDL_mslibc.c
+@@ -732,6 +732,33 @@ void __declspec(naked) _alloca_probe_16(void)
+
+ void __chkstk(void);
+ void __chkstk() {
++    // ARM64 stack checking implementation
++    // This function probes the stack to ensure there's enough space
++    // for the requested allocation size
++    __asm {
++        // Save x16 and x17 registers
++        stp         x16, x17, [sp, #-16]!
++        
++        // Calculate the new stack pointer
++        mov         x16, sp
++        sub         x16, x16, x0
++        
++        // Align to page boundary
++        mov         x17, #0x1000
++        sub         x17, x17, #1
++        bic         x16, x16, x17
++        
++        // Loop to probe each page
++probe_loop:
++        ldr         x17, [x16]
++        sub         x16, x16, #0x1000
++        cmp         x16, sp
++        b.ne        probe_loop
++        
++        // Restore registers and return
++        ldp         x16, x17, [sp], #16
++        ret
++    }
+ }
+
+ #endif
+PS>
+PS>prompt

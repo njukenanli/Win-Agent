@@ -1,0 +1,65 @@
+diff --git a/extensions/terminal-suggest/src/terminalSuggestMain.ts b/extensions/terminal-suggest/src/terminalSuggestMain.ts
+index 685ed841005..da2d07ae2ed 100644
+--- a/extensions/terminal-suggest/src/terminalSuggestMain.ts
++++ b/extensions/terminal-suggest/src/terminalSuggestMain.ts
+@@ -240,8 +240,6 @@ export async function getCompletionItemsFromSpecs(
+ 	let foldersRequested = false;
+ 
+ 	const precedingText = terminalContext.commandLine.slice(0, terminalContext.cursorPosition + 1);
+-	// TODO: Normalize precedingText to ignore file extensions on Windows
+-	// precedingText = precedingText.replace('.cmd', '');
+ 
+ 	let specificItemsProvided = false;
+ 	for (const spec of specs) {
+@@ -252,9 +250,17 @@ export async function getCompletionItemsFromSpecs(
+ 		}
+ 
+ 		for (const specLabel of specLabels) {
+-			const availableCommand = availableCommands.find(command => specLabel === command.label);
+-			// TODO: Normalize commands to ignore file extensions on Windows https://github.com/microsoft/vscode/issues/237598
+-			// const availableCommand = availableCommands.find(command => command.label.startsWith(specLabel));
++			// On Windows, commands may have file extensions (.cmd, .exe, .bat, etc.)
++			// so we need to match the spec label against the command label without the extension
++			const availableCommand = availableCommands.find(command => {
++				const commandLabel = command.label;
++				if (isWindows) {
++					// Remove common Windows executable extensions for comparison
++					const normalizedLabel = commandLabel.replace(/\.(exe|cmd|bat|ps1)$/i, '');
++					return specLabel === normalizedLabel || specLabel === commandLabel;
++				}
++				return specLabel === commandLabel;
++			});
+ 			if (!availableCommand || (token && token.isCancellationRequested)) {
+ 				continue;
+ 			}
+@@ -267,11 +273,25 @@ export async function getCompletionItemsFromSpecs(
+ 				continue;
+ 			}
+ 
+-			// TODO: Normalize commands to ignore file extensions on Windows https://github.com/microsoft/vscode/issues/237598
+-			// const commandAndAliases = availableCommands.filter(command => specLabel === (command.definitionCommand ?? command.label).replace('.cmd', ''));
+-			// if (!commandAndAliases.some(e => terminalContext.commandLine.startsWith(`${e.label} `) || terminalContext.commandLine.startsWith(`${e.label}.cmd `))) {
+-			const commandAndAliases = availableCommands.filter(command => specLabel === (command.definitionCommand ?? command.label));
+-			if (!commandAndAliases.some(e => terminalContext.commandLine.startsWith(`${e.label} `))) {
++			// On Windows, commands may have file extensions, so we need to normalize for comparison
++			const commandAndAliases = availableCommands.filter(command => {
++				const definitionLabel = command.definitionCommand ?? command.label;
++				if (isWindows) {
++					const normalizedLabel = definitionLabel.replace(/\.(exe|cmd|bat|ps1)$/i, '');
++					return specLabel === normalizedLabel || specLabel === definitionLabel;
++				}
++				return specLabel === definitionLabel;
++			});
++			// Check if the spec label appears at the start of the command line
++			// On Windows, check both with and without common extensions
++			let commandInLine = false;
++			if (terminalContext.commandLine.startsWith(`${specLabel} `)) {
++				commandInLine = true;
++			} else if (isWindows) {
++				const extensions = ['.exe', '.cmd', '.bat', '.ps1'];
++				commandInLine = extensions.some(ext => terminalContext.commandLine.startsWith(`${specLabel}${ext} `));
++			}
++			if (!commandInLine || commandAndAliases.length === 0) {
+ 				// the spec label is not the first word in the command line, so do not provide options or args
+ 				continue;
+ 			}

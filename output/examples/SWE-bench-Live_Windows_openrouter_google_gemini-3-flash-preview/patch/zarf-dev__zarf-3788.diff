@@ -1,0 +1,335 @@
+diff --git a/src/cmd/dev.go b/src/cmd/dev.go
+index 8989c4b2..cc18a59d 100644
+--- a/src/cmd/dev.go
++++ b/src/cmd/dev.go
+@@ -17,7 +17,6 @@ import (
+ 	"github.com/AlecAivazis/survey/v2"
+ 	"github.com/defenseunicorns/pkg/helpers/v2"
+ 	goyaml "github.com/goccy/go-yaml"
+-	"github.com/mholt/archiver/v3"
+ 	"github.com/pterm/pterm"
+ 	"github.com/sergi/go-diff/diffmatchpatch"
+ 	"github.com/spf13/cobra"
+@@ -27,6 +26,7 @@ import (
+ 	"github.com/zarf-dev/zarf/src/config/lang"
+ 	"github.com/zarf-dev/zarf/src/internal/packager2"
+ 	layout2 "github.com/zarf-dev/zarf/src/internal/packager2/layout"
++	"github.com/zarf-dev/zarf/src/pkg/archive"
+ 	"github.com/zarf-dev/zarf/src/pkg/layout"
+ 	"github.com/zarf-dev/zarf/src/pkg/lint"
+ 	"github.com/zarf-dev/zarf/src/pkg/logger"
+@@ -536,7 +536,7 @@ func (o *devSha256SumOptions) run(cmd *cobra.Command, args []string) (err error)
+ 		extractedFile := filepath.Join(tmp, o.extractPath)
+ 
+ 		// TODO(mkcp): See https://github.com/zarf-dev/zarf/issues/3051
+-		err = archiver.Extract(fileName, o.extractPath, tmp)
++		err = archive.Extract(cmd.Context(), fileName, o.extractPath, tmp)
+ 		if err != nil {
+ 			return errors.Join(hashErr, err)
+ 		}
+diff --git a/src/internal/packager2/create.go b/src/internal/packager2/create.go
+index e9f163bb..3af60306 100644
+--- a/src/internal/packager2/create.go
++++ b/src/internal/packager2/create.go
+@@ -72,7 +72,7 @@ func Create(ctx context.Context, packagePath string, opt CreateOptions) error {
+ 	}
+ 
+ 	if opt.SBOMOut != "" {
+-		_, err := pkgLayout.GetSBOM(opt.SBOMOut)
++		_, err := pkgLayout.GetSBOM(ctx, opt.SBOMOut)
+ 		// Don't fail package create if the package doesn't have an sbom
+ 		var noSBOMErr *layout2.NoSBOMAvailableError
+ 		if errors.As(err, &noSBOMErr) {
+diff --git a/src/internal/packager2/inspect.go b/src/internal/packager2/inspect.go
+index cf4e6cb9..ebdf0c04 100644
+--- a/src/internal/packager2/inspect.go
++++ b/src/internal/packager2/inspect.go
+@@ -311,7 +311,7 @@ func InspectPackageSboms(ctx context.Context, source string, opts InspectPackage
+ 	defer func() {
+ 		err = errors.Join(err, pkgLayout.Cleanup())
+ 	}()
+-	outputPath, err := pkgLayout.GetSBOM(opts.OutputDir)
++	outputPath, err := pkgLayout.GetSBOM(ctx, opts.OutputDir)
+ 	if err != nil {
+ 		return InspectPackageSbomsResult{}, fmt.Errorf("could not get SBOM: %w", err)
+ 	}
+diff --git a/src/internal/packager2/layout/create.go b/src/internal/packager2/layout/create.go
+index 20fb10be..94f60f5f 100644
+--- a/src/internal/packager2/layout/create.go
++++ b/src/internal/packager2/layout/create.go
+@@ -23,7 +23,6 @@ import (
+ 
+ 	"github.com/defenseunicorns/pkg/helpers/v2"
+ 	goyaml "github.com/goccy/go-yaml"
+-	"github.com/mholt/archiver/v3"
+ 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
+ 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/sign"
+ 
+@@ -36,6 +35,7 @@ import (
+ 	"github.com/zarf-dev/zarf/src/internal/packager/kustomize"
+ 	actions2 "github.com/zarf-dev/zarf/src/internal/packager2/actions"
+ 	"github.com/zarf-dev/zarf/src/internal/packager2/filters"
++	"github.com/zarf-dev/zarf/src/pkg/archive"
+ 	"github.com/zarf-dev/zarf/src/pkg/interactive"
+ 	"github.com/zarf-dev/zarf/src/pkg/lint"
+ 	"github.com/zarf-dev/zarf/src/pkg/logger"
+@@ -407,7 +407,7 @@ func assemblePackageComponent(ctx context.Context, component v1alpha1.ZarfCompon
+ 					return fmt.Errorf(lang.ErrDownloading, file.Source, err.Error())
+ 				}
+ 				// TODO(mkcp): See https://github.com/zarf-dev/zarf/issues/3051
+-				err = archiver.Extract(compressedFile, file.ExtractPath, destinationDir)
++				err = archive.Extract(ctx, compressedFile, file.ExtractPath, destinationDir)
+ 				if err != nil {
+ 					return fmt.Errorf(lang.ErrFileExtract, file.ExtractPath, compressedFileName, err.Error())
+ 				}
+@@ -419,7 +419,7 @@ func assemblePackageComponent(ctx context.Context, component v1alpha1.ZarfCompon
+ 		} else {
+ 			if file.ExtractPath != "" {
+ 				// TODO(mkcp): See https://github.com/zarf-dev/zarf/issues/3051
+-				if err := archiver.Extract(filepath.Join(packagePath, file.Source), file.ExtractPath, destinationDir); err != nil {
++				if err := archive.Extract(ctx, filepath.Join(packagePath, file.Source), file.ExtractPath, destinationDir); err != nil {
+ 					return fmt.Errorf(lang.ErrFileExtract, file.ExtractPath, file.Source, err.Error())
+ 				}
+ 			} else {
+@@ -612,7 +612,7 @@ func assembleSkeletonComponent(component v1alpha1.ZarfComponent, packagePath, bu
+ 
+ 		if file.ExtractPath != "" {
+ 			// TODO(mkcp): See https://github.com/zarf-dev/zarf/issues/3051
+-			if err := archiver.Extract(filepath.Join(packagePath, file.Source), file.ExtractPath, destinationDir); err != nil {
++			if err := archive.Extract(ctx, filepath.Join(packagePath, file.Source), file.ExtractPath, destinationDir); err != nil {
+ 				return fmt.Errorf(lang.ErrFileExtract, file.ExtractPath, file.Source, err.Error())
+ 			}
+ 
+diff --git a/src/internal/packager2/layout/create_test.go b/src/internal/packager2/layout/create_test.go
+index e0e859c8..fa7bdde8 100644
+--- a/src/internal/packager2/layout/create_test.go
++++ b/src/internal/packager2/layout/create_test.go
+@@ -351,7 +351,7 @@ func TestGetSBOM(t *testing.T) {
+ 	// Ensure the SBOM does not exist
+ 	require.NoFileExists(t, filepath.Join(pkgLayout.dirPath, SBOMTar))
+ 	// Ensure Zarf errors correctly
+-	_, err = pkgLayout.GetSBOM(tmpdir)
++	_, err = pkgLayout.GetSBOM(context.TODO(), tmpdir)
+ 	var noSBOMErr *NoSBOMAvailableError
+ 	require.ErrorAs(t, err, &noSBOMErr)
+ }
+diff --git a/src/internal/packager2/layout/import.go b/src/internal/packager2/layout/import.go
+index dcf9fa2a..081332e7 100644
+--- a/src/internal/packager2/layout/import.go
++++ b/src/internal/packager2/layout/import.go
+@@ -17,7 +17,7 @@ import (
+ 
+ 	"github.com/defenseunicorns/pkg/helpers/v2"
+ 	"github.com/defenseunicorns/pkg/oci"
+-	"github.com/mholt/archiver/v3"
++	"github.com/zarf-dev/zarf/src/pkg/archive"
+ 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+ 	ocistore "oras.land/oras-go/v2/content/oci"
+ 
+diff --git a/src/internal/packager2/layout/package.go b/src/internal/packager2/layout/package.go
+index ead18f00..f91ac270 100644
+--- a/src/internal/packager2/layout/package.go
++++ b/src/internal/packager2/layout/package.go
+@@ -17,13 +17,13 @@ import (
+ 	"strings"
+ 
+ 	"github.com/defenseunicorns/pkg/helpers/v2"
+-	"github.com/mholt/archiver/v3"
+ 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
+ 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/verify"
+ 
+ 	"github.com/zarf-dev/zarf/src/api/v1alpha1"
+ 	"github.com/zarf-dev/zarf/src/config"
+ 	"github.com/zarf-dev/zarf/src/internal/packager2/filters"
++	"github.com/zarf-dev/zarf/src/pkg/archive"
+ 	"github.com/zarf-dev/zarf/src/pkg/logger"
+ 	"github.com/zarf-dev/zarf/src/pkg/packager/sources"
+ 	"github.com/zarf-dev/zarf/src/pkg/utils"
+@@ -141,13 +141,13 @@ func (e *NoSBOMAvailableError) Error() string {
+ }
+ 
+ // GetSBOM outputs the SBOM data from the package to the give destination path.
+-func (p *PackageLayout) GetSBOM(destPath string) (string, error) {
++func (p *PackageLayout) GetSBOM(ctx context.Context, destPath string) (string, error) {
+ 	if !p.Pkg.IsSBOMAble() {
+ 		return "", &NoSBOMAvailableError{pkgName: p.Pkg.Metadata.Name}
+ 	}
+ 	path := filepath.Join(destPath, p.Pkg.Metadata.Name)
+ 	// TODO(mkcp): See https://github.com/zarf-dev/zarf/issues/3051
+-	err := archiver.Extract(filepath.Join(p.dirPath, SBOMTar), "", path)
++	err := archive.Extract(ctx, filepath.Join(p.dirPath, SBOMTar), "", path)
+ 	if err != nil {
+ 		return "", err
+ 	}
+diff --git a/src/internal/packager2/layout/package_test.go b/src/internal/packager2/layout/package_test.go
+index 584c8092..38f3dfbf 100644
+--- a/src/internal/packager2/layout/package_test.go
++++ b/src/internal/packager2/layout/package_test.go
+@@ -40,7 +40,7 @@ func TestPackageLayout(t *testing.T) {
+ 	require.ErrorContains(t, err, "component test could not access a files directory")
+ 
+ 	tmpDir = t.TempDir()
+-	sbomPath, err := pkgLayout.GetSBOM(tmpDir)
++	sbomPath, err := pkgLayout.GetSBOM(context.TODO(), tmpDir)
+ 	require.NoError(t, err)
+ 	require.FileExists(t, filepath.Join(sbomPath, "compare.html"))
+ 
+diff --git a/src/pkg/archive/archive.go b/src/pkg/archive/archive.go
+index 6aa0b1a1..91e1515b 100644
+--- a/src/pkg/archive/archive.go
++++ b/src/pkg/archive/archive.go
+@@ -13,7 +13,6 @@ import (
+ 	"path/filepath"
+ 	"strings"
+ 
+-	"github.com/mholt/archiver/v3"
+ 	"github.com/mholt/archives"
+ 	"github.com/zarf-dev/zarf/src/config/lang"
+ 	"github.com/zarf-dev/zarf/src/pkg/layout"
+@@ -25,9 +24,32 @@ const rwxPerm = 0o755
+ type CompressOpts struct{}
+ 
+ // Compress takes any number of source files and archives them into a tarball at dest path.
+-// TODO(mkcp): Migrate to mholt/archives, see CVE-2024-0406
+-func Compress(_ context.Context, sources []string, dest string, _ CompressOpts) error {
+-	return archiver.Archive(sources, dest)
++func Compress(ctx context.Context, sources []string, dest string, _ CompressOpts) error {
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	files, err := archives.FilesFromDisk(ctx, nil, nil)
++	if err != nil {
++		return err
++	}
++	// Filter files to only those in sources
++	// Actually FilesFromDisk with a map might be easier.
++	sourceMap := make(map[string]string)
++	for _, s := range sources {
++		sourceMap[s] = ""
++	}
++	files, err = archives.FilesFromDisk(ctx, nil, sourceMap)
++	if err != nil {
++		return err
++	}
++	out, err := os.Create(dest)
++	if err != nil {
++		return err
++	}
++	defer out.Close()
++
++	format := archives.Tar{}
++	return format.Archive(ctx, out, files)
+ }
+ 
+ // DecompressOpts provides optional parameters for Decompress
+@@ -158,3 +180,84 @@ func unarchive(ctx context.Context, src, dst string) error {
+ 	}
+ 	return nil
+ }
++
++// Extract extracts a single file or directory from an archive.
++func Extract(ctx context.Context, src, targetInArchive, dst string) error {
++	if ctx == nil {
++		ctx = context.Background()
++	}
++	// Open the archive file
++	file, err := os.Open(src)
++	if err != nil {
++		return fmt.Errorf("unable to open archive %q: %w", src, err)
++	}
++	defer func() {
++		err = errors.Join(err, file.Close())
++	}()
++
++	// Identify format & get an input stream
++	format, input, err := archives.Identify(ctx, src, file)
++	if err != nil {
++		return fmt.Errorf("unable to identify archive %q: %w", src, err)
++	}
++
++	// Assert that it supports extraction
++	extractor, ok := format.(archives.Extractor)
++	if !ok {
++		return fmt.Errorf("unsupported format for extraction: %T", format)
++	}
++
++	// Define how each entry is written to disk
++	handler := func(_ context.Context, f archives.FileInfo) error {
++		if f.NameInArchive != targetInArchive && !strings.HasPrefix(f.NameInArchive, targetInArchive+"/") {
++			return nil
++		}
++
++		relPath, err := filepath.Rel(targetInArchive, f.NameInArchive)
++		if err != nil {
++			return err
++		}
++		target := filepath.Join(dst, relPath)
++
++		switch {
++		case f.IsDir():
++			// directory
++			return os.MkdirAll(target, f.Mode())
++
++		case f.LinkTarget != "":
++			// symlink
++			linkDest := filepath.Join(dst, f.LinkTarget)
++			return os.Symlink(linkDest, target)
++
++		default:
++			// regular file
++			if err := os.MkdirAll(filepath.Dir(target), rwxPerm); err != nil {
++				return err
++			}
++			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, f.Mode())
++			if err != nil {
++				return err
++			}
++			defer func() {
++				err = errors.Join(err, out.Close())
++			}()
++
++			in, err := f.Open()
++			if err != nil {
++				return err
++			}
++			defer func() {
++				err = errors.Join(err, in.Close())
++			}()
++
++			_, err = io.Copy(out, in)
++			return err
++		}
++	}
++
++	// Perform extraction
++	if err := extractor.Extract(ctx, input, handler); err != nil {
++		return fmt.Errorf("unable to extract %q from %q: %w", targetInArchive, src, err)
++	}
++	return nil
++}
+diff --git a/src/pkg/layout/sbom.go b/src/pkg/layout/sbom.go
+index fcfb300b..c1437a0e 100644
+--- a/src/pkg/layout/sbom.go
++++ b/src/pkg/layout/sbom.go
+@@ -11,7 +11,7 @@ import (
+ 	"path/filepath"
+ 
+ 	"github.com/defenseunicorns/pkg/helpers/v2"
+-	"github.com/mholt/archiver/v3"
++	"github.com/zarf-dev/zarf/src/pkg/archive"
+ )
+ 
+ // ComponentSBOM contains paths for a component's SBOM.
+diff --git a/src/test/e2e/06_create_sbom_test.go b/src/test/e2e/06_create_sbom_test.go
+index 3b8c0969..29c76370 100644
+--- a/src/test/e2e/06_create_sbom_test.go
++++ b/src/test/e2e/06_create_sbom_test.go
+@@ -35,7 +35,7 @@ func TestCreateSBOM(t *testing.T) {
+ 
+ 	pkgLayout, err := layout2.LoadFromTar(context.Background(), tarPath, layout2.PackageLayoutOptions{})
+ 	require.NoError(t, err)
+-	getSbomPath, err := pkgLayout.GetSBOM(t.TempDir())
++	getSbomPath, err := pkgLayout.GetSBOM(context.TODO(), t.TempDir())
+ 	require.NoError(t, err)
+ 	for _, expectedFile := range expectedFiles {
+ 		require.FileExists(t, filepath.Join(getSbomPath, expectedFile))

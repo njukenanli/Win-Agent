@@ -1,0 +1,43 @@
+diff --git a/src/segments/path.go b/src/segments/path.go
+index a59ec51e..81311d99 100644
+--- a/src/segments/path.go
++++ b/src/segments/path.go
+@@ -611,6 +611,10 @@ func (pt *Path) replaceMappedLocations(inputPath string) (string, string) {
+ 
+ 	rootN := pt.normalize(root)
+ 	relativeN := pt.normalize(relative)
++	if strings.HasPrefix(inputPath, "/mnt/") {
++		rootN = strings.ToLower(rootN)
++		relativeN = strings.ToLower(relativeN)
++	}
+ 
+ 	escape := func(path string) string {
+ 		// Escape chevron characters to avoid applying unexpected text styles.
+@@ -620,7 +624,11 @@ func (pt *Path) replaceMappedLocations(inputPath string) (string, string) {
+ 	for _, key := range keys {
+ 		if strings.HasPrefix(key, regexPrefix) {
+ 			input := strings.ReplaceAll(inputPath, `\`, `/`)
+-			match, OK := regex.FindStringMatch(key[len(regexPrefix):], input, 1)
++			pattern := key[len(regexPrefix):]
++			if pt.env.GOOS() == runtime.WINDOWS || pt.env.GOOS() == runtime.DARWIN || strings.HasPrefix(input, "/mnt/") {
++				pattern = "(?i)" + pattern
++			}
++			match, OK := regex.FindStringMatch(pattern, input, 1)
+ 			if !OK {
+ 				continue
+ 			}
+@@ -748,12 +756,12 @@ func (pt *Path) normalize(inputPath string) string {
+ 		normalized = pt.env.Home() + normalized[1:]
+ 	}
+ 
+-	normalized = path.Clean(normalized)
+-
+ 	if pt.env.GOOS() == runtime.WINDOWS || pt.env.GOOS() == runtime.DARWIN {
+ 		normalized = strings.ToLower(normalized)
+ 	}
+ 
++	normalized = path.Clean(normalized)
++
+ 	return normalized
+ }
+ 

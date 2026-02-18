@@ -1,0 +1,63 @@
+diff --git a/metricbeat/module/windows/service/reader_test.go b/metricbeat/module/windows/service/reader_test.go
+index 4a4246a577..ef745d0f6c 100644
+--- a/metricbeat/module/windows/service/reader_test.go
++++ b/metricbeat/module/windows/service/reader_test.go
+@@ -55,7 +55,9 @@ func TestGetMachineGUID(t *testing.T) {
+ }
+ 
+ func TestRead(t *testing.T) {
+-	t.Skip("Flaky test: https://github.com/elastic/beats/issues/22171")
++	// This test was previously flaky (https://github.com/elastic/beats/issues/22171)
++	// because errors in individual services would cause the entire read to fail.
++	// With the fix, errors are logged but don't stop processing of other services.
+ 
+ 	reader, err := NewReader()
+ 	assert.NoError(t, err)
+diff --git a/metricbeat/module/windows/service/service_status.go b/metricbeat/module/windows/service/service_status.go
+index 571d324cb5..0f013d2396 100644
+--- a/metricbeat/module/windows/service/service_status.go
++++ b/metricbeat/module/windows/service/service_status.go
+@@ -168,7 +168,10 @@ func GetServiceStates(handle Handle, state ServiceEnumState, protectedServices m
+ 
+ 		service, err := getServiceInformation(serviceTemp, servicesBuffer, handle, protectedServices)
+ 		if err != nil {
+-			return nil, err
++			// Log the error but continue processing other services.
++			// This prevents a single problematic service from stopping all service monitoring.
++			logp.Err("Failed to get information for service (skipping): %v", err)
++			continue
+ 		}
+ 
+ 		services = append(services, service)
+@@ -238,10 +241,13 @@ func getServiceInformation(rawService *EnumServiceStatusProcess, servicesBuffer
+ 				protectedServices[service.ServiceName] = struct{}{}
+ 				logp.Warn("Uptime for service %v is not available because of insufficient rights", service.ServiceName)
+ 			} else {
+-				return service, err
++				// Log warning for other errors but don't fail - this allows monitoring to continue
++				// for all other services even if one service has an invalid PID or other issue
++				logp.Warn("Failed to get uptime for service %v (PID: %v): %v", service.ServiceName, rawService.ServiceStatusProcess.DwProcessId, err)
+ 			}
++		} else {
++			service.Uptime = processUpTime / time.Millisecond
+ 		}
+-		service.Uptime = processUpTime / time.Millisecond
+ 	}
+ 
+ 	return service, nil
+diff --git a/metricbeat/module/windows/service/service_status_test.go b/metricbeat/module/windows/service/service_status_test.go
+index 3b81399d2c..b7d4d7d697 100644
+--- a/metricbeat/module/windows/service/service_status_test.go
++++ b/metricbeat/module/windows/service/service_status_test.go
+@@ -26,7 +26,10 @@ import (
+ )
+ 
+ func TestGetServiceStates(t *testing.T) {
+-	t.Skip("Flaky test: https://github.com/elastic/beats/issues/22172")
++	// This test was previously flaky (https://github.com/elastic/beats/issues/22172)
++	// because a single service with an error would cause the entire function to fail.
++	// With the fix, individual service errors are logged but don't stop processing
++	// of other services, making this test more stable.
+ 
+ 	handle, err := openSCManager("", "", ScManagerEnumerateService|ScManagerConnect)
+ 	assert.NoError(t, err)

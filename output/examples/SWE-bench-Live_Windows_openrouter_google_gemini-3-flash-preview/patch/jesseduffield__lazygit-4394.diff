@@ -1,0 +1,104 @@
+diff --git a/pkg/commands/git_commands/tag.go b/pkg/commands/git_commands/tag.go
+index d2b01ba7e..3fa9d543d 100644
+--- a/pkg/commands/git_commands/tag.go
++++ b/pkg/commands/git_commands/tag.go
+@@ -1,6 +1,9 @@
+ package git_commands
+ 
+-import "github.com/jesseduffield/gocui"
++import (
++	"github.com/jesseduffield/gocui"
++	"github.com/jesseduffield/lazygit/pkg/commands/oscommands"
++)
+ 
+ type TagCommands struct {
+ 	*GitCommon
+@@ -12,24 +15,32 @@ func NewTagCommands(gitCommon *GitCommon) *TagCommands {
+ 	}
+ }
+ 
+-func (self *TagCommands) CreateLightweight(tagName string, ref string, force bool) error {
++func (self *TagCommands) CreateLightweightCmdObj(tagName string, ref string, force bool) oscommands.ICmdObj {
+ 	cmdArgs := NewGitCmd("tag").
+ 		ArgIf(force, "--force").
+ 		Arg("--", tagName).
+ 		ArgIf(len(ref) > 0, ref).
+ 		ToArgv()
+ 
+-	return self.cmd.New(cmdArgs).Run()
++	return self.cmd.New(cmdArgs)
+ }
+ 
+-func (self *TagCommands) CreateAnnotated(tagName, ref, msg string, force bool) error {
++func (self *TagCommands) CreateLightweight(tagName string, ref string, force bool) error {
++	return self.CreateLightweightCmdObj(tagName, ref, force).Run()
++}
++
++func (self *TagCommands) CreateAnnotatedCmdObj(tagName, ref, msg string, force bool) oscommands.ICmdObj {
+ 	cmdArgs := NewGitCmd("tag").Arg(tagName).
+ 		ArgIf(force, "--force").
+ 		ArgIf(len(ref) > 0, ref).
+ 		Arg("-m", msg).
+ 		ToArgv()
+ 
+-	return self.cmd.New(cmdArgs).Run()
++	return self.cmd.New(cmdArgs)
++}
++
++func (self *TagCommands) CreateAnnotated(tagName, ref, msg string, force bool) error {
++	return self.CreateAnnotatedCmdObj(tagName, ref, msg, force).Run()
+ }
+ 
+ func (self *TagCommands) HasTag(tagName string) bool {
+diff --git a/pkg/gui/controllers/helpers/tags_helper.go b/pkg/gui/controllers/helpers/tags_helper.go
+index aa6ff7740..124fde904 100644
+--- a/pkg/gui/controllers/helpers/tags_helper.go
++++ b/pkg/gui/controllers/helpers/tags_helper.go
+@@ -21,25 +21,17 @@ func NewTagsHelper(c *HelperCommon, commitsHelper *CommitsHelper) *TagsHelper {
+ 
+ func (self *TagsHelper) OpenCreateTagPrompt(ref string, onCreate func()) error {
+ 	doCreateTag := func(tagName string, description string, force bool) error {
+-		return self.c.WithWaitingStatus(self.c.Tr.CreatingTag, func(gocui.Task) error {
+-			if description != "" {
+-				self.c.LogAction(self.c.Tr.Actions.CreateAnnotatedTag)
+-				if err := self.c.Git().Tag.CreateAnnotated(tagName, ref, description, force); err != nil {
+-					return err
+-				}
+-			} else {
+-				self.c.LogAction(self.c.Tr.Actions.CreateLightweightTag)
+-				if err := self.c.Git().Tag.CreateLightweight(tagName, ref, force); err != nil {
+-					return err
+-				}
+-			}
+-
+-			self.commitsHelper.OnCommitSuccess()
+-
+-			return self.c.Refresh(types.RefreshOptions{
+-				Mode: types.ASYNC, Scope: []types.RefreshableView{types.COMMITS, types.TAGS},
++		if description != "" {
++			cmdObj := self.c.Git().Tag.CreateAnnotatedCmdObj(tagName, ref, description, force)
++			return self.c.Helpers().GPG.WithGpgHandling(cmdObj, self.c.Tr.CreatingTag, func() error {
++				return self.afterTagCreate()
+ 			})
+-		})
++		} else {
++			cmdObj := self.c.Git().Tag.CreateLightweightCmdObj(tagName, ref, force)
++			return self.c.Helpers().GPG.WithGpgHandling(cmdObj, self.c.Tr.CreatingTag, func() error {
++				return self.afterTagCreate()
++			})
++		}
+ 	}
+ 
+ 	onConfirm := func(tagName string, description string) error {
+@@ -79,3 +71,11 @@ func (self *TagsHelper) OpenCreateTagPrompt(ref string, onCreate func()) error {
+ 
+ 	return nil
+ }
++
++func (self *TagsHelper) afterTagCreate() error {
++	self.commitsHelper.OnCommitSuccess()
++
++	return self.c.Refresh(types.RefreshOptions{
++		Mode: types.ASYNC, Scope: []types.RefreshableView{types.COMMITS, types.TAGS},
++	})
++}

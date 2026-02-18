@@ -1,0 +1,42 @@
+diff --git a/pkg/archive/tar/tar.go b/pkg/archive/tar/tar.go
+index 9738d5a9..c835d84e 100644
+--- a/pkg/archive/tar/tar.go
++++ b/pkg/archive/tar/tar.go
+@@ -7,6 +7,7 @@ import (
+ 	"io"
+ 	"io/fs"
+ 	"os"
++	"runtime"
+ 
+ 	"github.com/goreleaser/goreleaser/v2/pkg/config"
+ )
+@@ -80,6 +81,8 @@ func (a Archive) Add(f config.File) error {
+ 	}
+ 	if f.Info.Mode != 0 {
+ 		header.Mode = int64(f.Info.Mode)
++	} else if runtime.GOOS == "windows" || info.Mode()&0o111 != 0 {
++		header.Mode = 0o755
+ 	}
+ 	if f.Info.Owner != "" {
+ 		header.Uid = 0
+diff --git a/pkg/archive/zip/zip.go b/pkg/archive/zip/zip.go
+index 217b1dff..e07edaa3 100644
+--- a/pkg/archive/zip/zip.go
++++ b/pkg/archive/zip/zip.go
+@@ -10,6 +10,7 @@ import (
+ 	"io/fs"
+ 	"os"
+ 	"path/filepath"
++	"runtime"
+ 
+ 	"github.com/goreleaser/goreleaser/v2/pkg/config"
+ )
+@@ -100,6 +101,8 @@ func (a Archive) Add(f config.File) error {
+ 	}
+ 	if f.Info.Mode != 0 {
+ 		header.SetMode(f.Info.Mode)
++	} else if runtime.GOOS == "windows" || info.Mode()&0o111 != 0 {
++		header.SetMode(0o755)
+ 	}
+ 	w, err := a.z.CreateHeader(header)
+ 	if err != nil {

@@ -1,0 +1,190 @@
+
+diff --git a/pkg/commands/git_commands/tag.go b/pkg/commands/git_commands/tag.go
+o
+index d2b01ba7e..93211ebb3 100644
+--- a/pkg/commands/git_commands/tag.go
++++ b/pkg/commands/git_commands/tag.go
+@@ -13,8 +13,26 @@ func NewTagCommands(gitCommon *GitCommon) *TagCommands {     
+ }
+
+ func (self *TagCommands) CreateLightweight(tagName string, ref string, force bo
+ool) error {
+-       cmdArgs := NewGitCmd("tag").
+-               ArgIf(force, "--force").
++       cmd := NewGitCmd("tag").
++               ArgIf(force, "--force")
++
++       // If tag.gpgSign is enabled, git requires an annotated tag so it can st
+tore the
++       // signature. Attempting to create a lightweight tag will cause git to i
+invoke an
++       // editor for the missing message, which can hang in non-interactive con
+ntexts.
++       // To avoid this, we create an annotated tag with an explicit message.  
++       if self.GitCommon != nil && self.GitCommon.config != nil {
++               if self.GitCommon.config.gitConfig.GetBool("tag.gpgSign") {     
++                       cmdArgs := cmd.
++                               Arg(tagName).
++                               ArgIf(len(ref) > 0, ref).
++                               Arg("-m", "").
++                               ToArgv()
++
++                       return self.cmd.New(cmdArgs).Run()
++               }
++       }
++
++       cmdArgs := cmd.
+                Arg("--", tagName).
+                ArgIf(len(ref) > 0, ref).
+                ToArgv()
+diff --git a/pkg/integration/components/env.go b/pkg/integration/components/env.
+.go
+index e7a8a6941..2f0cfc09b 100644
+--- a/pkg/integration/components/env.go
++++ b/pkg/integration/components/env.go
+@@ -53,13 +53,22 @@func allowedHostEnvironment() []string {
+ func NewTestEnvironment(rootDir string) []string {
+        env := allowedHostEnvironment()
+
+-       // Set $HOME to control the global git config location for git
+-       // versions <= 2.31.8
+-       env = append(env, fmt.Sprintf("%s=%s", HOME, testPath(rootDir)))        
++       // Set $HOME to control the global git config location for git.
++       // We set it to the repo root so git won't read the repository's checked
+d-in
++       // test/.gitconfig file (which is not an actual gitconfig, it's just a p
+pointer).
++       env = append(env, fmt.Sprintf("%s=%s", HOME, rootDir))
+
+        // $GIT_CONFIG_GLOBAL controls global git config location for git       
+        // versions >= 2.32.0
+        env = append(env, fmt.Sprintf("%s=%s", GIT_CONFIG_GLOBAL_ENV_VAR, global
+lGitConfigPath(rootDir)))
+
++       // Ensure GIT uses the global config we provide and doesn't try to read 
+ any
++       // real user/system config from the host environment.
++       env = append(env, fmt.Sprintf("%s=true", GIT_CONFIG_NOGLOBAL))
++
++       // Avoid picking up a checked-in test/.gitconfig (this repo has one that
+t isn't
++       // a real config file).
++       env = append(env, fmt.Sprintf("GIT_CONFIG_SYSTEM=NUL"))
++
+        return env
+ }
+diff --git a/pkg/integration/components/runner.go b/pkg/integration/components/r
+runner.go
+index f123182cf..af5de16a4 100644
+--- a/pkg/integration/components/runner.go
++++ b/pkg/integration/components/runner.go
+@@ -143,7 +143,11 @@ func buildLazygit(testArgs RunTestArgs) error {
+        if testArgs.CodeCoverageDir != "" {
+                args = append(args, "-cover")
+        }
+-       args = append(args, "-o", tempLazygitPath(), filepath.FromSlash("pkg/int
+tegration/clients/injector/main.go"))
++       outputPath := tempLazygitPath()
++       if os.PathSeparator == '\\' {
++               outputPath += ".exe"
++       }
++       args = append(args, "-o", outputPath, filepath.FromSlash("pkg/integratio
+on/clients/injector/main.go"))
+        osCommand := oscommands.NewDummyOSCommand()
+        return osCommand.Cmd.New(args).Run()
+ }
+@@ -204,7 +208,11 @@ func getLazygitCommand(
+                return nil, err
+        }
+
+-       cmdArgs := []string{tempLazygitPath(), "-debug", "--use-config-dir=" + p
+paths.Config()}
++       cmdPath := tempLazygitPath()
++       if os.PathSeparator == '\\' {
++               cmdPath += ".exe"
++       }
++       cmdArgs := []string{cmdPath, "-debug", "--use-config-dir=" + paths.Confi
+ig()}
+
+        resolvedExtraArgs := lo.Map(test.ExtraCmdArgs(), func(arg string, _ int)
+) string {
+                return utils.ResolvePlaceholderString(arg, map[string]string{   
+@@ -260,11 +268,12 @@ func getLazygitCommand(
+ }
+
+ func tempLazygitPath() string {
+-       return filepath.Join("/tmp", "lazygit", "test_lazygit")
++       // On Windows, "/tmp" is not a standard location.
++       return filepath.Join(os.TempDir(), "lazygit", "test_lazygit")
+ }
+
+ func raceDetectorLogsPath() string {
+-       return filepath.Join("/tmp", "lazygit", "race_log")
++       return filepath.Join(os.TempDir(), "lazygit", "race_log")
+ }
+
+ func findOrCreateDir(path string) {
+diff --git a/pkg/integration/components/shell.go b/pkg/integration/components/sh
+hell.go
+index cdafb5756..fefa85f98 100644
+--- a/pkg/integration/components/shell.go
++++ b/pkg/integration/components/shell.go
+@@ -407,6 +407,9 @@ func (self *Shell) StartBisect(good string, bad string) *She
+ell {
+
+ func (self *Shell) Init() *Shell {
+        self.RunCommand([]string{"git", "-c", "init.defaultBranch=master", "init
+t"})
++       // Ensure commits work even if global config isn't picked up for some re
+eason
++       self.RunCommand([]string{"git", "config", "user.name", "CI"})
++       self.RunCommand([]string{"git", "config", "user.email", "CI@example.com"
+"})
+        return self
+ }
+
+diff --git a/pkg/integration/components/test.go b/pkg/integration/components/tes
+st.go
+index 6eab23ae0..03b0ec395 100644
+--- a/pkg/integration/components/test.go
++++ b/pkg/integration/components/test.go
+@@ -229,7 +229,14 @@ func testNameFromCurrentFilePath() string {
+ }
+
+ func TestNameFromFilePath(path string) string {
+-       name := strings.Split(path, "integration/tests/")[1]
++       // Support both slash styles because on Windows filepath.Walk provides b
+backslashes.
++       // e.g. "...\\pkg\\integration\\tests\\tag\\crud_lightweight.go"        
++       path = strings.ReplaceAll(path, "\\", "/")
++       parts := strings.Split(path, "integration/tests/")
++       if len(parts) < 2 {
++               return ""
++       }
++       name := parts[1]
+
+        return name[:len(name)-len(".go")]
+ }
+diff --git a/pkg/integration/tests/test_list.go b/pkg/integration/tests/test_lis
+st.go
+index cce631956..3b4adce34 100644
+--- a/pkg/integration/tests/test_list.go
++++ b/pkg/integration/tests/test_list.go
+@@ -371,6 +371,7 @@ var tests = []*components.IntegrationTest{
+        tag.CreateWhileCommitting,
+        tag.CrudAnnotated,
+        tag.CrudLightweight,
++       tag.CreateLightweightWithGpgSignAndEmptyMessage,
+        tag.DeleteLocalAndRemote,
+        tag.ForceTagAnnotated,
+        tag.ForceTagLightweight,
+diff --git a/test/.gitconfig b/test/.gitconfig
+index b2405f3cd..284dbe9bb 120000
+--- a/test/.gitconfig
++++ b/test/.gitconfig
+@@ -1 +1,2 @@
+-global_git_config
+\ No newline at end of file
++[include]
++       path = global_git_config
+

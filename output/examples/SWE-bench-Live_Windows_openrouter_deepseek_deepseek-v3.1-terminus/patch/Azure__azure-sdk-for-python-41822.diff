@@ -1,0 +1,111 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/sdk/identity/azure-identity/azure/identity/_credentials/default.py 
+ b/sdk/identity/azure-identity/azure/identity/_credentials/default.py
+index 798afb8428..2a27bc67fe 100644
+--- a/sdk/identity/azure-identity/azure/identity/_credentials/default.py
++++ b/sdk/identity/azure-identity/azure/identity/_credentials/default.py        
+@@ -18,6 +18,15 @@ from .shared_cache import SharedTokenCacheCredential
+ from .azure_cli import AzureCliCredential
+ from .azd_cli import AzureDeveloperCliCredential
+ from .vscode import VisualStudioCodeCredential
++
++# VS Code SSO support - conditionally import broker credential
++BROKER_AVAILABLE = False
++try:
++    from azure.identity.broker import InteractiveBrowserBrokerCredential       
++    BROKER_AVAILABLE = True
++except ImportError:
++    pass  # Broker package not available
++
+ from .workload_identity import WorkloadIdentityCredential
+
+ _LOGGER = logging.getLogger(__name__)
+@@ -45,6 +54,11 @@ class DefaultAzureCredential(ChainedTokenCredential):        
+
+     This default behavior is configurable with keyword arguments.
+
++    When running in Visual Studio Code with the azure-identity-broker package i
+installed,
++    this credential will automatically use Web Account Manager (WAM) on Windows
+s for 
++    silent single sign-on authentication.
++
++
+     :keyword str authority: Authority of a Microsoft Entra endpoint, for exampl
+le 'login.microsoftonline.com',
+         the authority for Azure Public Cloud (which is the default). :class:`~a
+azure.identity.AzureAuthorityHosts`
+         defines authorities for other clouds. Managed identities ignore this be
+ecause they reside in a single cloud.
+@@ -84,6 +98,10 @@ class DefaultAzureCredential(ChainedTokenCredential):        
+         settings or, when that setting has no value, the "organizations" tenant
+t, which supports only Azure Active
+         Directory work or school accounts.
+     :keyword int process_timeout: The timeout in seconds to use for developer c
+credentials that run
++    :keyword bool enable_vscode_sso: Whether to enable Visual Studio Code singl
+le sign-on.
++        Defaults to True when running in VS Code environment. Requires the     
++        azure-identity-broker package to be installed.
++
+         subprocesses (e.g. AzureCliCredential, AzurePowerShellCredential). Defa
+aults to **10** seconds.
+
+     .. admonition:: Example:
+@@ -242,15 +260,43 @@ class DefaultAzureCredential(ChainedTokenCredential):     
+             credentials.append(AzurePowerShellCredential(process_timeout=proces
+ss_timeout))
+         if not exclude_developer_cli_credential:
+             credentials.append(AzureDeveloperCliCredential(process_timeout=proc
+cess_timeout))
++        
+         if not exclude_interactive_browser_credential:
+-            if interactive_browser_client_id:
+-                credentials.append(
+-                    InteractiveBrowserCredential(
+-                        tenant_id=interactive_browser_tenant_id, client_id=inte
+eractive_browser_client_id, **kwargs
+-                    )
++            # Check if running in VS Code environment
++            vscode_environment = (
++                os.environ.get('TERM_PROGRAM') == 'vscode' or 
++                os.environ.get('VSCODE_PID') is not None or
++                os.environ.get('VSCODE_CWD') is not None
++            )
++
++            # Enable VS Code SSO through broker when available and in VS Code  
++            if vscode_environment and BROKER_AVAILABLE:
++                # Use broker credential for silent SSO in VS Code
++                broker_cred = InteractiveBrowserBrokerCredential(
++                    tenant_id=interactive_browser_tenant_id,
++                    client_id=interactive_browser_client_id,
++                    use_default_broker_account=True,  # Enable silent SSO
++                    **kwargs
+                 )
++                credentials.append(broker_cred)
++                _LOGGER.info("VS Code SSO enabled using InteractiveBrowserBroke
+erCredential")
+             else:
+-                credentials.append(InteractiveBrowserCredential(tenant_id=inter
+ractive_browser_tenant_id, **kwargs))
++                # Fallback to regular interactive browser
++                if interactive_browser_client_id:
++                    credentials.append(
++                        InteractiveBrowserCredential(
++                            tenant_id=interactive_browser_tenant_id, 
++                            client_id=interactive_browser_client_id, 
++                            **kwargs
++                        )
++                    )
++                else:
++                    credentials.append(
++                        InteractiveBrowserCredential(
++                            tenant_id=interactive_browser_tenant_id, 
++                            **kwargs
++                        )
++                    )
+         within_dac.set(False)
+         super(DefaultAzureCredential, self).__init__(*credentials)
+
+PS>
+PS>prompt

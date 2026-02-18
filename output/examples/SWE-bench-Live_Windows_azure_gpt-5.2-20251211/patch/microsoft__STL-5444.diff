@@ -1,0 +1,68 @@
+
+diff --git a/stl/inc/regex b/stl/inc/regex
+index b63f7e83..84edd20c 100644
+--- a/stl/inc/regex
++++ b/stl/inc/regex
+@@ -311,12 +311,48 @@ public:
+     template <class _FwdIt>
+     string_type transform_primary(_FwdIt _First, _FwdIt _Last) const {
+         // apply locale-specific case-insensitive transformation
++        // LWG-4186: transform_primary is used to implement equivalence classes
+s ([[= =]]).
++        // The primary level of collation ignores diacritics; on Windows this c
+corresponds
++        // to NORM_IGNORENONSPACE.
+         string_type _Res;
+
+         if (_First != _Last) { // non-empty string, transform it
+             vector<_Elem> _Temp(_First, _Last);
+
+             _Getctype()->tolower(_Temp.data(), _Temp.data() + _Temp.size());   
++
++            // collate::transform does not support selecting primary weights, s
+so perform the
++            // mapping directly when possible.
++#if defined(_WIN32)
++            if constexpr (is_same_v<_Elem, wchar_t>) {
++                // LCMapStringEx with LCMAP_SORTKEY produces an opaque array of
+f bytes.
++                // _Getwcoll()->_GetCollvec()->_LocaleName is the locale name u
+used by collate.
++                const _Collvec* const _Pcvec = _Getwcoll()->_GetCollvec();     
++                const wchar_t* const _Locale_name = _Pcvec ? _Pcvec->_LocaleNam
+me : nullptr;
++
++                if (_Locale_name) {
++                    // First query required size.
++                    const int _Need = __crtLCMapStringW(_Locale_name, LCMAP_SOR
+RTKEY | NORM_IGNORENONSPACE,
++                        _Temp.data(), static_cast<int>(_Temp.size()), nullptr, 
+ 0);
++                    if (_Need > 0) {
++                        // Store sort-key bytes as wide chars for compatibility
+y with existing regex engine.
++                        _Res.resize(static_cast<size_t>(_Need));
++#pragma warning(push)
++#pragma warning(disable : 6386) // LCMAP_SORTKEY: cchDest is in bytes
++                        (void) __crtLCMapStringW(_Locale_name, LCMAP_SORTKEY | 
+ NORM_IGNORENONSPACE, _Temp.data(),
++                            static_cast<int>(_Temp.size()), reinterpret_cast<wc
+char_t*>(_Res.data()), _Need);
++#pragma warning(pop)
++                        // __crtLCMapStringW writes bytes including a null term
+minator; shrink to exclude the last L'\0'
++                        // to match existing transform() behavior.
++                        if (!_Res.empty() && _Res.back() == L'\0') {
++                            _Res.pop_back();
++                        }
++                        return _Res;
++                    }
++                }
++            }
++#endif // defined(_WIN32)
++
+             _Res = _Getcoll()->transform(_Temp.data(), _Temp.data() + _Temp.siz
+ze());
+         }
+         return _Res;
+

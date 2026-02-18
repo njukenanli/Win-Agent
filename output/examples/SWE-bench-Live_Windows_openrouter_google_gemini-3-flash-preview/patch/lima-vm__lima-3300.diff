@@ -1,0 +1,121 @@
+diff --git a/cmd/limactl/copy.go b/cmd/limactl/copy.go
+index d6333399..2fd35eb6 100644
+--- a/cmd/limactl/copy.go
++++ b/cmd/limactl/copy.go
+@@ -80,12 +80,31 @@ func copyAction(cmd *cobra.Command, args []string) error {
+ 	// this assumes that ssh and scp come from the same place, but scp has no -V
+ 	legacySSH := sshutil.DetectOpenSSHVersion("ssh").LessThan(*semver.New("8.0.0"))
+ 	for _, arg := range args {
+-		path := strings.Split(arg, ":")
+-		switch len(path) {
+-		case 1:
++		var instName, remainingPath string
++		colonIndex := strings.Index(arg, ":")
++		if colonIndex > 0 {
++			if colonIndex == 1 && ((arg[0] >= 'a' && arg[0] <= 'z') || (arg[0] >= 'A' && arg[0] <= 'Z')) {
++				nextColonIndex := strings.Index(arg[colonIndex+1:], ":")
++				if nextColonIndex != -1 {
++					actualColonIndex := colonIndex + 1 + nextColonIndex
++					instName = arg[:actualColonIndex]
++					remainingPath = arg[actualColonIndex+1:]
++				} else {
++					instName = ""
++					remainingPath = arg
++				}
++			} else {
++				instName = arg[:colonIndex]
++				remainingPath = arg[colonIndex+1:]
++			}
++		} else {
++			instName = ""
++			remainingPath = arg
++		}
++
++		if instName == "" {
+ 			scpArgs = append(scpArgs, arg)
+-		case 2:
+-			instName := path[0]
++		} else {
+ 			inst, err := store.Inspect(instName)
+ 			if err != nil {
+ 				if errors.Is(err, os.ErrNotExist) {
+@@ -98,13 +117,11 @@ func copyAction(cmd *cobra.Command, args []string) error {
+ 			}
+ 			if legacySSH {
+ 				scpFlags = append(scpFlags, "-P", fmt.Sprintf("%d", inst.SSHLocalPort))
+-				scpArgs = append(scpArgs, fmt.Sprintf("%s@127.0.0.1:%s", *inst.Config.User.Name, path[1]))
++				scpArgs = append(scpArgs, fmt.Sprintf("%s@127.0.0.1:%s", *inst.Config.User.Name, remainingPath))
+ 			} else {
+-				scpArgs = append(scpArgs, fmt.Sprintf("scp://%s@127.0.0.1:%d/%s", *inst.Config.User.Name, inst.SSHLocalPort, path[1]))
++				scpArgs = append(scpArgs, fmt.Sprintf("scp://%s@127.0.0.1:%d/%s", *inst.Config.User.Name, inst.SSHLocalPort, remainingPath))
+ 			}
+ 			instances[instName] = inst
+-		default:
+-			return fmt.Errorf("path %q contains multiple colons", arg)
+ 		}
+ 	}
+ 	if legacySSH && len(instances) > 1 {
+diff --git a/cmd/limactl/shell.go b/cmd/limactl/shell.go
+index 3dee0bac..a8a790d6 100644
+--- a/cmd/limactl/shell.go
++++ b/cmd/limactl/shell.go
+@@ -8,11 +8,13 @@ import (
+ 	"fmt"
+ 	"os"
+ 	"os/exec"
++	"runtime"
+ 	"strconv"
+ 	"strings"
+ 
+ 	"al.essio.dev/pkg/shellescape"
+ 	"github.com/coreos/go-semver/semver"
++	"github.com/lima-vm/lima/pkg/ioutilx"
+ 	"github.com/lima-vm/lima/pkg/sshutil"
+ 	"github.com/lima-vm/lima/pkg/store"
+ 	"github.com/mattn/go-isatty"
+@@ -88,11 +90,17 @@ func shellAction(cmd *cobra.Command, args []string) error {
+ 		return err
+ 	}
+ 	if workDir != "" {
++		if runtime.GOOS == "windows" {
++			workDir = ioutilx.CanonicalWindowsPath(workDir)
++		}
+ 		changeDirCmd = fmt.Sprintf("cd %s || exit 1", shellescape.Quote(workDir))
+ 		// FIXME: check whether y.Mounts contains the home, not just len > 0
+ 	} else if len(inst.Config.Mounts) > 0 {
+ 		hostCurrentDir, err := os.Getwd()
+ 		if err == nil {
++			if runtime.GOOS == "windows" {
++				hostCurrentDir = ioutilx.CanonicalWindowsPath(hostCurrentDir)
++			}
+ 			changeDirCmd = fmt.Sprintf("cd %s", shellescape.Quote(hostCurrentDir))
+ 		} else {
+ 			changeDirCmd = "false"
+@@ -100,6 +108,9 @@ func shellAction(cmd *cobra.Command, args []string) error {
+ 		}
+ 		hostHomeDir, err := os.UserHomeDir()
+ 		if err == nil {
++			if runtime.GOOS == "windows" {
++				hostHomeDir = ioutilx.CanonicalWindowsPath(hostHomeDir)
++			}
+ 			changeDirCmd = fmt.Sprintf("%s || cd %s", changeDirCmd, shellescape.Quote(hostHomeDir))
+ 		} else {
+ 			logrus.WithError(err).Warn("failed to get the home directory")
+diff --git a/pkg/sshutil/sshutil.go b/pkg/sshutil/sshutil.go
+index 891279d2..561f4cee 100644
+--- a/pkg/sshutil/sshutil.go
++++ b/pkg/sshutil/sshutil.go
+@@ -98,8 +98,12 @@ func DefaultPubKeys(loadDotSSH bool) ([]PubKey, error) {
+ 		}
+ 		if err := lockutil.WithDirLock(configDir, func() error {
+ 			// no passphrase, no user@host comment
++			privateKeyPath := filepath.Join(configDir, filenames.UserPrivateKey)
++			if runtime.GOOS == "windows" {
++				privateKeyPath = ioutilx.CanonicalWindowsPath(privateKeyPath)
++			}
+ 			keygenCmd := exec.Command("ssh-keygen", "-t", "ed25519", "-q", "-N", "",
+-				"-C", "lima", "-f", filepath.Join(configDir, filenames.UserPrivateKey))
++				"-C", "lima", "-f", privateKeyPath)
+ 			logrus.Debugf("executing %v", keygenCmd.Args)
+ 			if out, err := keygenCmd.CombinedOutput(); err != nil {
+ 				return fmt.Errorf("failed to run %v: %q: %w", keygenCmd.Args, string(out), err)

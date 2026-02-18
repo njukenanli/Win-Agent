@@ -1,0 +1,444 @@
+diff --git a/lib/config/configuration.go b/lib/config/configuration.go
+index 6aeb06d2f3..eb30d46e0a 100644
+--- a/lib/config/configuration.go
++++ b/lib/config/configuration.go
+@@ -2069,10 +2069,23 @@ func applyWindowsDesktopConfig(fc *FileConfig, cfg *servicecfg.Config) error {
+ 		}
+ 	}
+ 
++	// Parse polling interval if specified
++	var pollingInterval time.Duration
++	if fc.WindowsDesktop.Discovery.PollingInterval != "" {
++		var err error
++		pollingInterval, err = time.ParseDuration(fc.WindowsDesktop.Discovery.PollingInterval)
++		if err != nil {
++			return trace.BadParameter("WindowsDesktopService specifies invalid polling_interval %q: %v", fc.WindowsDesktop.Discovery.PollingInterval, err)
++		}
++	}
++
+ 	cfg.WindowsDesktop.Discovery = servicecfg.LDAPDiscoveryConfig{
+ 		BaseDN:          fc.WindowsDesktop.Discovery.BaseDN,
++		SearchPaths:     fc.WindowsDesktop.Discovery.SearchPaths,
+ 		Filters:         fc.WindowsDesktop.Discovery.Filters,
+ 		LabelAttributes: fc.WindowsDesktop.Discovery.LabelAttributes,
++		RDPPort:         fc.WindowsDesktop.Discovery.RDPPort,
++		PollingInterval: pollingInterval,
+ 	}
+ 
+ 	var err error
+diff --git a/lib/config/fileconf.go b/lib/config/fileconf.go
+index 44126398a2..5d1e0d3ed3 100644
+--- a/lib/config/fileconf.go
++++ b/lib/config/fileconf.go
+@@ -2580,7 +2580,11 @@ type LDAPDiscoveryConfig struct {
+ 	// BaseDN is the base DN to search for desktops.
+ 	// Use the value '*' to search from the root of the domain,
+ 	// or leave blank to disable desktop discovery.
++	// Deprecated: prefer SearchPaths for multiple search paths.
+ 	BaseDN string `yaml:"base_dn"`
++	// SearchPaths are multiple base DNs to search for desktops.
++	// If both BaseDN and SearchPaths are set, BaseDN is appended to SearchPaths.
++	SearchPaths []string `yaml:"search_paths,omitempty"`
+ 	// Filters are additional LDAP filters to apply to the search.
+ 	// See: https://ldap.com/ldap-filters/
+ 	Filters []string `yaml:"filters"`
+@@ -2590,6 +2594,12 @@ type LDAPDiscoveryConfig struct {
+ 	// discovered desktops having a label with key "ldap/location" and
+ 	// the value being the value of the "location" attribute.
+ 	LabelAttributes []string `yaml:"label_attributes"`
++	// RDPPort is the RDP port to use for discovered desktops.
++	// If not set, defaults to 3389.
++	RDPPort int `yaml:"rdp_port,omitempty"`
++	// PollingInterval is the interval at which to run discovery.
++	// If not set, defaults to 5 minutes.
++	PollingInterval string `yaml:"polling_interval,omitempty"`
+ }
+ 
+ // TracingService contains configuration for the tracing_service.
+diff --git a/lib/service/desktop.go b/lib/service/desktop.go
+index 789f50330e..549d2151e4 100644
+--- a/lib/service/desktop.go
++++ b/lib/service/desktop.go
+@@ -233,8 +233,11 @@ func (process *TeleportProcess) initWindowsDesktopServiceRegistered(logger *slog
+ 		KDCAddr:                      cfg.WindowsDesktop.KDCAddr,
+ 		PKIDomain:                    cfg.WindowsDesktop.PKIDomain,
+ 		DiscoveryBaseDN:              cfg.WindowsDesktop.Discovery.BaseDN,
++		DiscoverySearchPaths:         cfg.WindowsDesktop.Discovery.SearchPaths,
+ 		DiscoveryLDAPFilters:         cfg.WindowsDesktop.Discovery.Filters,
+ 		DiscoveryLDAPAttributeLabels: cfg.WindowsDesktop.Discovery.LabelAttributes,
++		DiscoveryRDPPort:             cfg.WindowsDesktop.Discovery.RDPPort,
++		DiscoveryInterval:            cfg.WindowsDesktop.Discovery.PollingInterval,
+ 		Hostname:                     cfg.Hostname,
+ 		ConnectedProxyGetter:         proxyGetter,
+ 		ResourceMatchers:             cfg.WindowsDesktop.ResourceMatchers,
+diff --git a/lib/service/servicecfg/windows.go b/lib/service/servicecfg/windows.go
+index 988dc16b3e..1304a038d9 100644
+--- a/lib/service/servicecfg/windows.go
++++ b/lib/service/servicecfg/windows.go
+@@ -22,6 +22,7 @@ import (
+ 	"crypto/x509"
+ 	"maps"
+ 	"regexp"
++	"time"
+ 
+ 	"github.com/gravitational/teleport/lib/limiter"
+ 	"github.com/gravitational/teleport/lib/services"
+@@ -87,7 +88,11 @@ type LDAPDiscoveryConfig struct {
+ 	// BaseDN is the base DN to search for desktops.
+ 	// Use the value '*' to search from the root of the domain,
+ 	// or leave blank to disable desktop discovery.
++	// Deprecated: prefer SearchPaths for multiple search paths.
+ 	BaseDN string
++	// SearchPaths are multiple base DNs to search for desktops.
++	// If both BaseDN and SearchPaths are set, BaseDN is appended to SearchPaths.
++	SearchPaths []string
+ 	// Filters are additional LDAP filters to apply to the search.
+ 	// See: https://ldap.com/ldap-filters/
+ 	Filters []string
+@@ -97,6 +102,12 @@ type LDAPDiscoveryConfig struct {
+ 	// discovered desktops having a label with key "ldap/location" and
+ 	// the value being the value of the "location" attribute.
+ 	LabelAttributes []string
++	// RDPPort is the RDP port to use for discovered desktops.
++	// If not set, defaults to 3389.
++	RDPPort int
++	// PollingInterval is the interval at which to run discovery.
++	// If not set, defaults to 5 minutes.
++	PollingInterval time.Duration
+ }
+ 
+ // HostLabelRules is a collection of rules describing how to apply labels to hosts.
+diff --git a/lib/srv/desktop/discovery.go b/lib/srv/desktop/discovery.go
+index ee50a8de2a..2b82de6af2 100644
+--- a/lib/srv/desktop/discovery.go
++++ b/lib/srv/desktop/discovery.go
+@@ -121,9 +121,8 @@ func (s *WindowsService) startDesktopDiscovery() error {
+ 			s.cfg.Logger.ErrorContext(s.closeCtx, "desktop reconciliation failed", "error", err)
+ 		}
+ 
+-		// TODO(zmb3): consider making the discovery period configurable
+-		// (it's currently hard coded to 5 minutes in order to match DB access discovery behavior)
+-		t := s.cfg.Clock.NewTicker(5 * time.Minute)
++		// Use the configured discovery interval (defaults to 5 minutes)
++		t := s.cfg.Clock.NewTicker(s.cfg.DiscoveryInterval)
+ 		defer t.Stop()
+ 		for {
+ 			select {
+@@ -168,40 +167,81 @@ func (s *WindowsService) getDesktopsFromLDAP() map[string]types.WindowsDesktop {
+ 	attrs = append(attrs, computerAttributes...)
+ 	attrs = append(attrs, s.cfg.DiscoveryLDAPAttributeLabels...)
+ 
+-	entries, err := s.lc.ReadWithFilter(s.cfg.DiscoveryBaseDN, filter, attrs)
+-	if trace.IsConnectionProblem(err) {
+-		// If the connection was broken, re-initialize the LDAP client so that it's
+-		// ready for the next reconcile loop. Return the last known set of desktops
+-		// in this case, so that the reconciler doesn't delete the desktops it already
+-		// knows about.
+-		s.cfg.Logger.InfoContext(context.Background(), "LDAP connection error when searching for desktops, reinitializing client")
+-		if err := s.initializeLDAP(); err != nil {
+-			s.cfg.Logger.ErrorContext(context.Background(), "failed to reinitialize LDAP client, will retry on next reconcile", "error", err)
+-		}
+-		return s.lastDiscoveryResults
+-	} else if err != nil {
+-		s.cfg.Logger.WarnContext(context.Background(), "could not discover Windows Desktops", "error", err)
++	// Build the list of search paths
++	searchPaths := s.getSearchPaths()
++	if len(searchPaths) == 0 {
++		s.cfg.Logger.DebugContext(context.Background(), "no search paths configured, skipping discovery")
+ 		return nil
+ 	}
+ 
+-	s.cfg.Logger.DebugContext(context.Background(), "discovered Windows Desktops", "count", len(entries))
+-
+ 	result := make(map[string]types.WindowsDesktop)
+-	for _, entry := range entries {
+-		desktop, err := s.ldapEntryToWindowsDesktop(s.closeCtx, entry, s.cfg.HostLabelsFn)
+-		if err != nil {
+-			s.cfg.Logger.WarnContext(s.closeCtx, "could not create Windows Desktop from LDAP entry", "error", err)
++
++	// Search each path
++	for _, baseDN := range searchPaths {
++		s.cfg.Logger.DebugContext(context.Background(), "searching LDAP path", "base_dn", baseDN, "filter", filter)
++
++		entries, err := s.lc.ReadWithFilter(baseDN, filter, attrs)
++		if trace.IsConnectionProblem(err) {
++			// If the connection was broken, re-initialize the LDAP client so that it's
++			// ready for the next reconcile loop. Return the last known set of desktops
++			// in this case, so that the reconciler doesn't delete the desktops it already
++			// knows about.
++			s.cfg.Logger.InfoContext(context.Background(), "LDAP connection error when searching for desktops, reinitializing client")
++			if err := s.initializeLDAP(); err != nil {
++				s.cfg.Logger.ErrorContext(context.Background(), "failed to reinitialize LDAP client, will retry on next reconcile", "error", err)
++			}
++			return s.lastDiscoveryResults
++		} else if err != nil {
++			s.cfg.Logger.WarnContext(context.Background(), "could not discover Windows Desktops in path", "base_dn", baseDN, "error", err)
+ 			continue
+ 		}
+-		result[desktop.GetName()] = desktop
++
++		s.cfg.Logger.DebugContext(context.Background(), "discovered Windows Desktops in path", "base_dn", baseDN, "count", len(entries))
++
++		for _, entry := range entries {
++			desktop, err := s.ldapEntryToWindowsDesktop(s.closeCtx, entry, s.cfg.HostLabelsFn)
++			if err != nil {
++				s.cfg.Logger.WarnContext(s.closeCtx, "could not create Windows Desktop from LDAP entry", "error", err)
++				continue
++			}
++			result[desktop.GetName()] = desktop
++		}
+ 	}
+ 
++	s.cfg.Logger.DebugContext(context.Background(), "total discovered Windows Desktops", "count", len(result))
++
+ 	// capture the result, which will be used on the next reconcile loop
+ 	s.lastDiscoveryResults = result
+ 
+ 	return result
+ }
+ 
++// getSearchPaths returns the list of LDAP search paths to use for discovery.
++// It combines DiscoverySearchPaths and DiscoveryBaseDN (for backward compatibility).
++func (s *WindowsService) getSearchPaths() []string {
++	var paths []string
++
++	// Add configured search paths
++	paths = append(paths, s.cfg.DiscoverySearchPaths...)
++
++	// Add legacy DiscoveryBaseDN if set and not a wildcard (wildcard is already expanded)
++	if s.cfg.DiscoveryBaseDN != "" && s.cfg.DiscoveryBaseDN != types.Wildcard {
++		// Only add if not already in search paths
++		found := false
++		for _, p := range paths {
++			if p == s.cfg.DiscoveryBaseDN {
++				found = true
++				break
++			}
++		}
++		if !found {
++			paths = append(paths, s.cfg.DiscoveryBaseDN)
++		}
++	}
++
++	return paths
++}
++
+ func (s *WindowsService) updateDesktop(ctx context.Context, desktop, _ types.WindowsDesktop) error {
+ 	return s.upsertDesktop(ctx, desktop)
+ }
+@@ -335,7 +375,8 @@ func (s *WindowsService) ldapEntryToWindowsDesktop(
+ 	}
+ 
+ 	s.cfg.Logger.DebugContext(ctx, "resolved desktop host", "hostname", hostname, "addrs", addrs)
+-	addr, err := utils.ParseHostPortAddr(addrs[0], defaults.RDPListenPort)
++	// Use the configured RDP port (defaults to 3389)
++	addr, err := utils.ParseHostPortAddr(addrs[0], s.cfg.DiscoveryRDPPort)
+ 	if err != nil {
+ 		return nil, trace.Wrap(err)
+ 	}
+diff --git a/lib/srv/desktop/windows_server.go b/lib/srv/desktop/windows_server.go
+index 767c959510..e896cdee0f 100644
+--- a/lib/srv/desktop/windows_server.go
++++ b/lib/srv/desktop/windows_server.go
+@@ -204,7 +204,12 @@ type WindowsServiceConfig struct {
+ 	KDCAddr string
+ 	// DiscoveryBaseDN is the base DN for searching for Windows Desktops.
+ 	// Desktop discovery is disabled if this field is empty.
++	// Deprecated: prefer DiscoverySearchPaths for multiple search paths.
+ 	DiscoveryBaseDN string
++	// DiscoverySearchPaths are multiple base DNs for searching for Windows Desktops.
++	// If both DiscoveryBaseDN and DiscoverySearchPaths are set, DiscoveryBaseDN
++	// is appended to the search paths.
++	DiscoverySearchPaths []string
+ 	// DiscoveryLDAPFilters are additional LDAP filters for searching for
+ 	// Windows Desktops. If multiple filters are specified, they are ANDed
+ 	// together into a single search.
+@@ -212,6 +217,12 @@ type WindowsServiceConfig struct {
+ 	// DiscoveryLDAPAttributeLabels are optional LDAP attributes to convert
+ 	// into Teleport labels.
+ 	DiscoveryLDAPAttributeLabels []string
++	// DiscoveryRDPPort is the RDP port to use for discovered desktops.
++	// If not set, defaults to 3389.
++	DiscoveryRDPPort int
++	// DiscoveryInterval is the interval at which to run discovery.
++	// If not set, defaults to 5 minutes.
++	DiscoveryInterval time.Duration
+ 	// Hostname of the Windows desktop service
+ 	Hostname string
+ 	// ConnectedProxyGetter gets the proxies teleport is connected to.
+@@ -235,6 +246,17 @@ type HeartbeatConfig struct {
+ }
+ 
+ func (cfg *WindowsServiceConfig) checkAndSetDiscoveryDefaults() error {
++	// Set default RDP port if not specified
++	if cfg.DiscoveryRDPPort == 0 {
++		cfg.DiscoveryRDPPort = defaults.RDPListenPort
++	}
++
++	// Set default discovery interval if not specified
++	if cfg.DiscoveryInterval == 0 {
++		cfg.DiscoveryInterval = 5 * time.Minute
++	}
++
++	// Handle DiscoveryBaseDN (legacy field)
+ 	switch {
+ 	case cfg.DiscoveryBaseDN == types.Wildcard:
+ 		cfg.DiscoveryBaseDN = windows.DomainDN(cfg.Domain)
+@@ -244,6 +266,13 @@ func (cfg *WindowsServiceConfig) checkAndSetDiscoveryDefaults() error {
+ 		}
+ 	}
+ 
++	// Validate all search paths
++	for _, path := range cfg.DiscoverySearchPaths {
++		if _, err := ldap.ParseDN(path); err != nil {
++			return trace.BadParameter("WindowsServiceConfig contains an invalid search path %q: %v", path, err)
++		}
++	}
++
+ 	for _, filter := range cfg.DiscoveryLDAPFilters {
+ 		if _, err := ldap.CompileFilter(filter); err != nil {
+ 			return trace.BadParameter("WindowsServiceConfig contains an invalid LDAP filter %q: %v", filter, err)
+@@ -416,20 +445,21 @@ func NewWindowsService(cfg WindowsServiceConfig) (*WindowsService, error) {
+ 		return nil, trace.Wrap(err)
+ 	}
+ 
+-	if len(s.cfg.DiscoveryBaseDN) > 0 {
++	// Start desktop discovery if we have search paths or legacy base_dn configured
++	if len(s.cfg.DiscoveryBaseDN) > 0 || len(s.cfg.DiscoverySearchPaths) > 0 {
+ 		if err := s.startDesktopDiscovery(); err != nil {
+ 			return nil, trace.Wrap(err)
+ 		}
+ 	} else if len(s.cfg.Heartbeat.StaticHosts) == 0 {
+ 		s.cfg.Logger.WarnContext(ctx, "desktop discovery via LDAP is disabled, and no hosts are defined in the configuration; there will be no Windows desktops available to connect")
+ 	} else {
+-		s.cfg.Logger.InfoContext(ctx, "desktop discovery via LDAP is disabled, set 'base_dn' to enable")
++		s.cfg.Logger.InfoContext(ctx, "desktop discovery via LDAP is disabled, set 'base_dn' or 'search_paths' to enable")
+ 	}
+ 
+ 	// if LDAP-based discovery is not enabled, but we have configured LDAP
+ 	// then it's important that we periodically try to use the LDAP connection
+ 	// to detect connection closure
+-	if s.ldapConfigured && len(s.cfg.DiscoveryBaseDN) == 0 {
++	if s.ldapConfigured && len(s.cfg.DiscoveryBaseDN) == 0 && len(s.cfg.DiscoverySearchPaths) == 0 {
+ 		s.startLDAPConnectionCheck(ctx)
+ 	}
+ 
+diff --git a/lib/srv/desktop/windows_server_test.go b/lib/srv/desktop/windows_server_test.go
+index a27b1d0bcb..03a868cfad 100644
+--- a/lib/srv/desktop/windows_server_test.go
++++ b/lib/srv/desktop/windows_server_test.go
+@@ -58,6 +58,114 @@ func TestConfigWildcardBaseDN(t *testing.T) {
+ 	require.Equal(t, "DC=test,DC=goteleport,DC=com", cfg.DiscoveryBaseDN)
+ }
+ 
++// TestCustomRDPPort verifies that custom RDP port can be configured
++func TestCustomRDPPort(t *testing.T) {
++	customPort := 13389
++	cfg := WindowsServiceConfig{
++		DiscoveryBaseDN:  "DC=example,DC=com",
++		DiscoveryRDPPort: customPort,
++	}
++
++	err := cfg.checkAndSetDiscoveryDefaults()
++	require.NoError(t, err)
++	require.Equal(t, customPort, cfg.DiscoveryRDPPort)
++}
++
++// TestDefaultRDPPort verifies that default RDP port is set when not specified
++func TestDefaultRDPPort(t *testing.T) {
++	cfg := WindowsServiceConfig{
++		DiscoveryBaseDN: "DC=example,DC=com",
++	}
++
++	err := cfg.checkAndSetDiscoveryDefaults()
++	require.NoError(t, err)
++	require.Equal(t, 3389, cfg.DiscoveryRDPPort) // defaults.RDPListenPort
++}
++
++// TestMultipleSearchPaths verifies that multiple search paths can be configured
++func TestMultipleSearchPaths(t *testing.T) {
++	searchPaths := []string{
++		"CN=foo,DC=example,DC=com",
++		"CN=bar,DC=example,DC=com",
++		"OU=IT,DC=example,DC=com",
++	}
++
++	cfg := WindowsServiceConfig{
++		DiscoverySearchPaths: searchPaths,
++	}
++
++	err := cfg.checkAndSetDiscoveryDefaults()
++	require.NoError(t, err)
++	require.Equal(t, searchPaths, cfg.DiscoverySearchPaths)
++	require.Len(t, cfg.DiscoverySearchPaths, 3)
++}
++
++// TestSearchPathsMergeWithBaseDN verifies that search_paths and base_dn are merged
++func TestSearchPathsMergeWithBaseDN(t *testing.T) {
++	cfg := WindowsServiceConfig{
++		DiscoveryBaseDN:      "DC=old,DC=example,DC=com",
++		DiscoverySearchPaths: []string{"CN=new,DC=example,DC=com"},
++	}
++
++	s := &WindowsService{cfg: cfg}
++	paths := s.getSearchPaths()
++
++	require.Contains(t, paths, "DC=old,DC=example,DC=com")
++	require.Contains(t, paths, "CN=new,DC=example,DC=com")
++	require.Len(t, paths, 2)
++}
++
++// TestSearchPathsDeduplication verifies that duplicate paths are not added
++func TestSearchPathsDeduplication(t *testing.T) {
++	cfg := WindowsServiceConfig{
++		DiscoveryBaseDN:      "DC=example,DC=com",
++		DiscoverySearchPaths: []string{"DC=example,DC=com", "CN=new,DC=example,DC=com"},
++	}
++
++	s := &WindowsService{cfg: cfg}
++	paths := s.getSearchPaths()
++
++	require.Contains(t, paths, "DC=example,DC=com")
++	require.Contains(t, paths, "CN=new,DC=example,DC=com")
++	require.Len(t, paths, 2) // Should not have duplicates
++}
++
++// TestConfigurableDiscoveryInterval verifies that discovery interval can be configured
++func TestConfigurableDiscoveryInterval(t *testing.T) {
++	customInterval := 10 * time.Minute
++
++	cfg := WindowsServiceConfig{
++		DiscoveryBaseDN:   "DC=example,DC=com",
++		DiscoveryInterval: customInterval,
++	}
++
++	err := cfg.checkAndSetDiscoveryDefaults()
++	require.NoError(t, err)
++	require.Equal(t, customInterval, cfg.DiscoveryInterval)
++}
++
++// TestDefaultDiscoveryInterval verifies that default interval is 5 minutes
++func TestDefaultDiscoveryInterval(t *testing.T) {
++	cfg := WindowsServiceConfig{
++		DiscoveryBaseDN: "DC=example,DC=com",
++	}
++
++	err := cfg.checkAndSetDiscoveryDefaults()
++	require.NoError(t, err)
++	require.Equal(t, 5*time.Minute, cfg.DiscoveryInterval)
++}
++
++// TestInvalidSearchPaths verifies that invalid search paths are rejected
++func TestInvalidSearchPaths(t *testing.T) {
++	cfg := WindowsServiceConfig{
++		DiscoverySearchPaths: []string{"invalid"},
++	}
++
++	err := cfg.checkAndSetDiscoveryDefaults()
++	require.Error(t, err)
++	require.Contains(t, err.Error(), "invalid search path")
++}
++
+ func TestConfigDesktopDiscovery(t *testing.T) {
+ 	for _, test := range []struct {
+ 		desc    string

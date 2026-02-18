@@ -1,0 +1,13 @@
+diff --git a/src/vs/workbench/contrib/terminal/common/scripts/shellIntegration.ps1 b/src/vs/workbench/contrib/terminal/common/scripts/shellIntegration.ps1
+index 4c5a7059a51..daea565bf94 100644
+--- a/src/vs/workbench/contrib/terminal/common/scripts/shellIntegration.ps1
++++ b/src/vs/workbench/contrib/terminal/common/scripts/shellIntegration.ps1
+@@ -363,7 +363,7 @@ function Send-Completions {
+ 			$prefixCursorDelta = $cursorIndex - $newCursorIndex
+ 			$cursorIndex = $newCursorIndex
+ 		}
+-		elseif ($lastWord -notmatch '[/\\$]') {
++		elseif ($lastWord -notmatch '[/\\$]' -and $lastWord -ne "") {
+ 			if ($lastWhitespaceIndex -ne -1 -and $lastWhitespaceIndex -lt $cursorIndex) {
+ 				$newCursorIndex = $lastWhitespaceIndex + 1
+ 				$completionPrefix = $completionPrefix.Substring(0, $newCursorIndex)

@@ -1,0 +1,59 @@
+diff --git a/.github/workflows/e2e-main.yaml b/.github/workflows/e2e-main.yaml
+index b1851fe12c5..b03f52d0d6b 100644
+--- a/.github/workflows/e2e-main.yaml
++++ b/.github/workflows/e2e-main.yaml
+@@ -175,8 +175,8 @@ jobs:
+             !./tests/**/traces/raw
+ 
+   win-update-e2e-test:
+-    name: win update e2e tests - ${{ matrix.installation }}
+-    runs-on: windows-2025
++    name: win update e2e tests - ${{ matrix.os }} - ${{ matrix.installation }}
++    runs-on: ${{ matrix.os }}
+     # disable on forks as secrets are not available
+     if: github.event.repository.fork == false
+     permissions:
+@@ -187,6 +187,7 @@ jobs:
+     strategy:
+       fail-fast: false
+       matrix:
++        os: [windows-2025, windows-11-arm]
+         installation: ['vanilla', 'custom-extensions']
+         exclude:
+         - installation: ${{ (github.event.inputs.update_with_extensions && github.event.inputs.update_with_extensions == 'true') && 'N/A' || 'custom-extensions' }}
+@@ -221,7 +222,12 @@ jobs:
+           ELECTRON_ENABLE_INSPECT: true
+         run: |
+           pnpm compile:current --win nsis
+-          $path=('./dist/win-unpacked/Podman Desktop.exe' | resolve-path).ProviderPath
++          $runnerArch=$env:RUNNER_ARCH
++          $unpackedPath = "dist/win-unpacked"
++          if ($runnerArch -eq 'ARM64') {
++            $unpackedPath = "dist/win-arm64-unpacked"
++          }
++          $path=("./$unpackedPath/Podman Desktop.exe" | resolve-path).ProviderPath
+           echo $path
+           echo ("PODMAN_DESKTOP_BINARY=" + $path) >> $env:GITHUB_ENV
+ 
+@@ -247,7 +253,7 @@ jobs:
+       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+         if: always()
+         with:
+-          name: update-e2e-test-${{ matrix.installation }}
++          name: ${{ matrix.os }}-update-e2e-test-${{ matrix.installation }}
+           path: |
+             ./tests/**/output/
+             !./tests/**/traces/raw
+diff --git a/.github/workflows/pr-check.yaml b/.github/workflows/pr-check.yaml
+index b3817d2b3f5..d96cab71423 100644
+--- a/.github/workflows/pr-check.yaml
++++ b/.github/workflows/pr-check.yaml
+@@ -434,7 +434,7 @@ jobs:
+     strategy:
+       fail-fast: false
+       matrix: 
+-        os: [windows-2025]
++        os: [windows-2025, windows-11-arm]
+     if: contains(github.event.pull_request.labels.*.name, 'area/update') || needs.detect_pnpm_changes.outputs.pnpm_lock_changed == 'true'
+     runs-on: ${{ matrix.os }}
+     timeout-minutes: 60

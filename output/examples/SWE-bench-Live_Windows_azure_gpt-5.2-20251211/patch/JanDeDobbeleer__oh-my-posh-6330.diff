@@ -1,0 +1,77 @@
+diff --git a/src/segments/path.go b/src/segments/path.go
+index a59ec51e..a1042748 100644
+--- a/src/segments/path.go
++++ b/src/segments/path.go
+@@ -611,6 +611,14 @@ func (pt *Path) replaceMappedLocations(inputPath string) (string, string) {
+ 
+ 	rootN := pt.normalize(root)
+ 	relativeN := pt.normalize(relative)
++	// For Windows filesystems mounted into WSL (e.g. /mnt/c), the underlying FS is
++	// case-insensitive but the reported path casing can differ from the on-disk casing.
++	// Mapped location matching should therefore be case-insensitive for those mounts.
++	caseInsensitiveMatch := pt.env.GOOS() != runtime.WINDOWS && strings.HasPrefix(pt.normalize(inputPath), "/mnt/")
++	if caseInsensitiveMatch {
++		rootN = strings.ToLower(rootN)
++		relativeN = strings.ToLower(relativeN)
++	}
+ 
+ 	escape := func(path string) string {
+ 		// Escape chevron characters to avoid applying unexpected text styles.
+@@ -631,21 +639,53 @@ func (pt *Path) replaceMappedLocations(inputPath string) (string, string) {
+ 			return pt.parsePath(input)
+ 		}
+ 
+-		keyRoot, keyRelative := pt.parsePath(key)
++		_, keyRelative := pt.parsePath(key)
++		// On non-Windows platforms, paths can still point to a case-insensitive filesystem
++		// (e.g. Windows drives mounted into WSL). For these, mapped location matching
++		// should not be case-sensitive.
++		caseInsensitiveKey := caseInsensitiveMatch
++		if !caseInsensitiveKey {
++			keyNormalized := strings.ReplaceAll(pt.normalize(key), `\\`, `/`)
++			caseInsensitiveKey = strings.HasPrefix(keyNormalized, "/mnt/")
++		}
++
++		keyNormalized := strings.ReplaceAll(pt.normalize(key), `\\`, `/`)
++		keyRootN, keyRelativeN := pt.parsePath(keyNormalized)
++		keyRelativeN = pt.normalize(keyRelativeN)
++		if caseInsensitiveKey {
++			// normalize() lowercases only on Windows and macOS, so for WSL mounted
++			// Windows drives we do the lowercasing here.
++			keyRootN = strings.ToLower(keyRootN)
++			keyRelativeN = strings.ToLower(keyRelativeN)
++			// Also compare the config key (which is treated as relative to the root)
++			// case-insensitively by lowercasing it. This preserves the original
++			// keyRelative for overflow slicing.
++			keyRelative = strings.ToLower(keyRelative)
++		}
+ 
+-		matchSubFolders := strings.HasSuffix(keyRelative, pt.pathSeparator+"*")
++		matchSubFolders := strings.HasSuffix(keyRelativeN, pt.pathSeparator+"*")
+ 
+ 		if matchSubFolders {
+ 			// Remove the trailing wildcard (*).
+ 			keyRelative = keyRelative[:len(keyRelative)-1]
++			keyRelativeN = keyRelativeN[:len(keyRelativeN)-1]
+ 		}
+ 
+-		if keyRoot != rootN || !strings.HasPrefix(relativeN, keyRelative) {
++		if keyRootN != rootN || !strings.HasPrefix(relativeN, keyRelativeN) {
+ 			continue
+ 		}
+ 
+ 		value := pt.mappedLocations[key]
+-		overflow := relative[len(keyRelative):]
++
++		var overflow string
++		if caseInsensitiveMatch {
++			log.Debugf("mapped_locations: rootN=%s relativeN=%s", rootN, relativeN)
++			// Use the normalized (lowercased) key relative for slicing because
++			// WSL can report a different casing than what is configured.
++			overflow = relative[len(keyRelativeN):]
++		} else {
++			overflow = relative[len(keyRelative):]
++		}
+ 
+ 		// exactly match the full path
+ 		if len(overflow) == 0 {

@@ -1,0 +1,24 @@
+diff --git a/src/pkg/packager/actions/actions.go b/src/pkg/packager/actions/actions.go
+index cffcb8f7..b28b3344 100644
+--- a/src/pkg/packager/actions/actions.go
++++ b/src/pkg/packager/actions/actions.go
+@@ -225,15 +225,11 @@ func actionCmdMutation(ctx context.Context, cmd string, shellPref v1alpha1.Shell
+ 		// http://web.cs.ucla.edu/~miryung/teaching/EE461L-Spring2012/labs/posix.html for more details.
+ 		cmd = regexp.MustCompile(`^touch `).ReplaceAllString(cmd, `New-Item `)
+ 
+-		// Convert any ${ZARF_VAR_*} or $ZARF_VAR_* to ${env:ZARF_VAR_*} or $env:ZARF_VAR_* respectively (also TF_VAR_*).
++		// Convert any ${ZARF_VAR_*}, $ZARF_VAR_*, ${ZARF_CONST_*}, $ZARF_CONST_* to PowerShell $Env:* (also TF_VAR_*).
++		// Use ReplaceAllString to ensure we replace every occurrence, not just the first match.
+ 		// https://regex101.com/r/xk1rkw/1
+-		envVarRegex := regexp.MustCompile(`(?P<envIndicator>\${?(?P<varName>(ZARF|TF)_VAR_([a-zA-Z0-9_-])+)}?)`)
+-		get, err := helpers.MatchRegex(envVarRegex, cmd)
+-		if err == nil {
+-			newCmd := strings.ReplaceAll(cmd, get("envIndicator"), fmt.Sprintf("$Env:%s", get("varName")))
+-			logger.From(ctx).Debug("converted command", "cmd", cmd, "newCmd", newCmd)
+-			cmd = newCmd
+-		}
++		envVarRegex := regexp.MustCompile(`\${?(?P<varName>(ZARF|TF)_(VAR|CONST)_([a-zA-Z0-9_-])+)}?`)
++		cmd = envVarRegex.ReplaceAllString(cmd, `$$Env:${varName}`)
+ 	}
+ 
+ 	return cmd, nil

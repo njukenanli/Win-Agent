@@ -1,0 +1,15 @@
+diff --git a/stl/inc/regex b/stl/inc/regex
+index b63f7e83..5e8febc8 100644
+--- a/stl/inc/regex
++++ b/stl/inc/regex
+@@ -318,6 +318,10 @@ public:
+ 
+             _Getctype()->tolower(_Temp.data(), _Temp.data() + _Temp.size());
+             _Res = _Getcoll()->transform(_Temp.data(), _Temp.data() + _Temp.size());
++
++            if (!_Res.empty()) {
++                _Res.erase(_STD min(_Res.size(), static_cast<size_t>(2)));
++            }
+         }
+         return _Res;
+     }

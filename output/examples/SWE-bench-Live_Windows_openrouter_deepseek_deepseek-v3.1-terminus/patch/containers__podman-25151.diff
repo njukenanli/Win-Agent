@@ -1,0 +1,27 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/pkg/machine/machine_windows.go b/pkg/machine/machine_windows.go
+index 174980fc29..2e67163174 100644
+--- a/pkg/machine/machine_windows.go
++++ b/pkg/machine/machine_windows.go
+@@ -174,6 +174,17 @@ func launchWinProxy(opts WinProxyOpts) (bool, string, error
+r) {
+                return globalName, "", err
+        }
+
++       // Create the win-sshproxy.tid file with the process PID and thread ID  
++       tidFile := filepath.Join(stateDir, winSSHProxyTid)
++       pid := uint32(cmd.Process.Pid)
++       // For now, use PID as TID as win-sshproxy is single-threaded
++       tid := pid
++       tidContents := fmt.Sprintf("%d:%d", pid, tid)
++if err := os.WriteFile(tidFile, []byte(tidContents), 0644); err != nil {
++               // Log the error but don't fail the proxy launch
++               logrus.Warnf("Failed to create tid file %s: %v", tidFile, err)  
++       }
++
+        return globalName, NamedPipePrefix + waitPipe, WaitPipeExists(waitPipe, 
+ 80, func() error {
+                active, exitCode := GetProcessState(cmd.Process.Pid)
+                if !active {
+PS>
+PS>prompt

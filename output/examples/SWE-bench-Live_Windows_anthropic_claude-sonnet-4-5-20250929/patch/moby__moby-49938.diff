@@ -1,0 +1,53 @@
+diff --git a/libnetwork/networkdb/delegate.go b/libnetwork/networkdb/delegate.go
+index aa42300ab7..1e772c8522 100644
+--- a/libnetwork/networkdb/delegate.go
++++ b/libnetwork/networkdb/delegate.go
+@@ -39,15 +39,11 @@ func (nDB *NetworkDB) handleNodeEvent(nEvent *NodeEvent) bool {
+ 	// If we are here means that the event is fresher and the node is known. Update the laport time
+ 	n.ltime = nEvent.LTime
+ 
+-	// If the node is not known from memberlist we cannot process save any state of it else if it actually
+-	// dies we won't receive any notification and we will remain stuck with it
+-	if _, ok := nDB.nodes[nEvent.NodeName]; !ok {
+-		log.G(context.TODO()).Errorf("node: %s is unknown to memberlist", nEvent.NodeName)
+-		return false
+-	}
+-
+ 	switch nEvent.Type {
+ 	case NodeEventTypeJoin:
++		// For join events, we want to process them even if the node is not currently
++		// in the active memberlist. The node might be in failedNodes or leftNodes and
++		// this join event will move it back to active state.
+ 		moved, err := nDB.changeNodeState(n.Name, nodeActiveState)
+ 		if err != nil {
+ 			log.G(context.TODO()).WithError(err).Error("unable to find the node to move")
+@@ -58,6 +54,13 @@ func (nDB *NetworkDB) handleNodeEvent(nEvent *NodeEvent) bool {
+ 		}
+ 		return moved
+ 	case NodeEventTypeLeave:
++		// For leave events, only process if the node is currently in the active memberlist.
++		// If the node is not known from memberlist we cannot process save any state of it
++		// else if it actually dies we won't receive any notification and we will remain stuck with it
++		if _, ok := nDB.nodes[nEvent.NodeName]; !ok {
++			log.G(context.TODO()).Debugf("node: %s is not in active memberlist, ignoring leave event", nEvent.NodeName)
++			return false
++		}
+ 		moved, err := nDB.changeNodeState(n.Name, nodeLeftState)
+ 		if err != nil {
+ 			log.G(context.TODO()).WithError(err).Error("unable to find the node to move")
+@@ -128,9 +131,12 @@ func (nDB *NetworkDB) handleNetworkEvent(nEvent *NetworkEvent) bool {
+ 		return false
+ 	}
+ 
+-	// If the node is not known from memberlist we cannot process save any state of it else if it actually
+-	// dies we won't receive any notification and we will remain stuck with it
+-	if _, ok := nDB.nodes[nEvent.NodeName]; !ok {
++	// Check if we know about this node at all (in any state).
++	// We use findNode instead of just checking nDB.nodes to handle the case where
++	// a network join event arrives slightly before the memberlist NotifyJoin callback,
++	// or where a node is temporarily in failedNodes but is rejoining.
++	if n, _, _ := nDB.findNode(nEvent.NodeName); n == nil {
++		// We don't know about this node at all, ignore the event
+ 		return false
+ 	}
+ 

@@ -1,0 +1,14 @@
+diff --git a/src/renderer/src/utils/export.ts b/src/renderer/src/utils/export.ts
+index 7f441ef1e..a94bb5fdc 100644
+--- a/src/renderer/src/utils/export.ts
++++ b/src/renderer/src/utils/export.ts
+@@ -169,7 +169,8 @@ const createBaseMarkdown = (
+ ) => {
+   const { forceDollarMathInMarkdown } = store.getState().settings
+   const roleText = getRoleText(message.role, message.model?.name, message.model?.provider)
+-  const titleSection = `### ${roleText}`
++  // Use level-2 headings for message role titles so they don't collide with user content headings (e.g. ### in message body)
++  const titleSection = `## ${roleText}`
+   let reasoningSection = ''
+ 
+   if (includeReasoning) {

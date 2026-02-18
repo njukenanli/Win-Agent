@@ -1,0 +1,53 @@
+git --no-pager diff HEAD --diff-filter=M --text
+warning: CRLF will be replaced by LF in pkg/archive/tar/tar.go.
+The file will have its original line endings in your working directory
+warning: CRLF will be replaced by LF in pkg/archive/zip/zip.go.
+The file will have its original line endings in your working directory
+diff --git a/pkg/archive/tar/tar.go b/pkg/archive/tar/tar.go
+index 9738d5a9..f066770d 100644
+--- a/pkg/archive/tar/tar.go
++++ b/pkg/archive/tar/tar.go
+@@ -7,6 +7,7 @@ import (
+        "io"
+        "io/fs"
+        "os"
++       "runtime"
+
+        "github.com/goreleaser/goreleaser/v2/pkg/config"
+ )
+@@ -80,6 +81,9 @@ func (a Archive) Add(f config.File) error {
+        }
+        if f.Info.Mode != 0 {
+                header.Mode = int64(f.Info.Mode)
++       } else if runtime.GOOS == "windows" {
++               // On Windows, force 0755 permissions for binaries to ensure the
+ey are executable when extracted on Unix systems
++               header.Mode = int64(0755)
+        }
+        if f.Info.Owner != "" {
+                header.Uid = 0
+diff --git a/pkg/archive/zip/zip.go b/pkg/archive/zip/zip.go
+index 217b1dff..a0bf50c0 100644
+--- a/pkg/archive/zip/zip.go
++++ b/pkg/archive/zip/zip.go
+@@ -10,6 +10,7 @@ import (
+        "io/fs"
+        "os"
+        "path/filepath"
++       "runtime"
+
+        "github.com/goreleaser/goreleaser/v2/pkg/config"
+ )
+@@ -100,6 +101,9 @@ func (a Archive) Add(f config.File) error {
+        }
+        if f.Info.Mode != 0 {
+                header.SetMode(f.Info.Mode)
++       } else if runtime.GOOS == "windows" {
++               // On Windows, force 0755 permissions for binaries to ensure the
+ey are executable when extracted on Unix systems
++               header.SetMode(0755)
+        }
+        w, err := a.z.CreateHeader(header)
+        if err != nil {
+PS>
+PS>prompt

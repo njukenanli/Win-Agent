@@ -1,0 +1,40 @@
+diff --git a/src/core/windows/SDL_gameinput.h b/src/core/windows/SDL_gameinput.h
+index 0022c0bdd..5c90b6ec4 100644
+--- a/src/core/windows/SDL_gameinput.h
++++ b/src/core/windows/SDL_gameinput.h
+@@ -25,12 +25,35 @@
+ 
+ #ifdef HAVE_GAMEINPUT_H
+ 
++#ifdef __cplusplus
++extern "C" {
++#endif
++
+ #define COBJMACROS
++#ifdef SDL_PLATFORM_WIN32
++/* GameInput v1 from NuGet for Windows is C++-based.
++ * If not compiling as C++, temporarily define __cplusplus to get the C++ interface,
++ * which provides C-compatible vtable macros. */
++#ifndef __cplusplus
++#define __cplusplus 1
++#define SDL_GAMEINPUT_FAKE_CPLUSPLUS
++#endif
++#endif  // SDL_PLATFORM_WIN32
++
+ #include <gameinput.h>
+ 
++#ifdef SDL_GAMEINPUT_FAKE_CPLUSPLUS
++#undef __cplusplus
++#undef SDL_GAMEINPUT_FAKE_CPLUSPLUS
++#endif
++
+ extern bool SDL_InitGameInput(IGameInput **ppGameInput);
+ extern void SDL_QuitGameInput(void);
+ 
++#ifdef __cplusplus
++}
++#endif
++
+ #endif // HAVE_GAMEINPUT_H
+ 
+ #endif // SDL_gameinput_h_

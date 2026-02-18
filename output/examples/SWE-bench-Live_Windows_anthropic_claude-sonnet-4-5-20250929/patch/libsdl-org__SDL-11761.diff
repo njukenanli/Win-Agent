@@ -1,0 +1,84 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 94b1c9bfe..585827d51 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -505,9 +505,21 @@ if(MSVC AND TARGET SDL3-shared)
+     target_compile_options(SDL3-shared PRIVATE "$<$<COMPILE_LANGUAGE:ASM_MASM>:/nologo>")
+     set_property(SOURCE "${asm_src}" PROPERTY LANGUAGE "ASM_MASM")
+     target_sources(SDL3-shared PRIVATE "${asm_src}")
+-  elseif(SDL_CPU_ARM32 OR SDL_CPU_ARM64)
+-    # FIXME: ARM assembler (armasm.exe/armasm64.exe) is NOT ASM_MASM, and does currently not work with CMake
+-    # (https://gitlab.kitware.com/cmake/cmake/-/issues/18912)
++  elseif(SDL_CPU_ARM64)
++    # ARM64 assembler (armasm64.exe) support
++    enable_language(ASM_MARMASM)
++    set(asm_src "${SDL3_SOURCE_DIR}/src/stdlib/SDL_mslibc_arm64.asm")
++    target_compile_options(SDL3-shared PRIVATE "$<$<COMPILE_LANGUAGE:ASM_MARMASM>:-nologo>")
++    set_property(SOURCE "${asm_src}" PROPERTY LANGUAGE "ASM_MARMASM")
++    target_sources(SDL3-shared PRIVATE "${asm_src}")
++  elseif(SDL_CPU_ARM32)
++    # ARM32 assembler (armasm.exe) support
++    enable_language(ASM_MARMASM)
++    # Note: ARM32 assembly file would need to be created if needed
++    # set(asm_src "${SDL3_SOURCE_DIR}/src/stdlib/SDL_mslibc_arm32.asm")
++    # target_compile_options(SDL3-shared PRIVATE "$<$<COMPILE_LANGUAGE:ASM_MARMASM>:-nologo>")
++    # set_property(SOURCE "${asm_src}" PROPERTY LANGUAGE "ASM_MARMASM")
++    # target_sources(SDL3-shared PRIVATE "${asm_src}")
+   endif()
+ endif()
+ 
+diff --git a/VisualC-GDK/SDL/SDL.vcxproj b/VisualC-GDK/SDL/SDL.vcxproj
+index 2422201d2..357bdeaaf 100644
+--- a/VisualC-GDK/SDL/SDL.vcxproj
++++ b/VisualC-GDK/SDL/SDL.vcxproj
+@@ -807,6 +807,9 @@
+     <MASM Condition="'$(Platform)'=='x64'" Include="..\..\src\stdlib\SDL_mslibc_x64.masm">
+       <PrecompiledHeader>NotUsing</PrecompiledHeader>
+     </MASM>
++    <MARMASM Condition="'$(Platform)'=='ARM64'" Include="..\..\src\stdlib\SDL_mslibc_arm64.asm">
++      <PrecompiledHeader>NotUsing</PrecompiledHeader>
++    </MARMASM>
+     <ClCompile Include="..\..\src\stdlib\SDL_murmur3.c" />
+     <ClCompile Include="..\..\src\stdlib\SDL_qsort.c" />
+     <ClCompile Include="..\..\src\stdlib\SDL_random.c" />
+diff --git a/VisualC/SDL/SDL.vcxproj b/VisualC/SDL/SDL.vcxproj
+index e860035ae..6700fc476 100644
+--- a/VisualC/SDL/SDL.vcxproj
++++ b/VisualC/SDL/SDL.vcxproj
+@@ -650,6 +650,9 @@
+     <MASM Condition="'$(Platform)'=='x64'" Include="..\..\src\stdlib\SDL_mslibc_x64.masm">
+       <PrecompiledHeader>NotUsing</PrecompiledHeader>
+     </MASM>
++    <MARMASM Condition="'$(Platform)'=='ARM64'" Include="..\..\src\stdlib\SDL_mslibc_arm64.asm">
++      <PrecompiledHeader>NotUsing</PrecompiledHeader>
++    </MARMASM>
+     <ClCompile Include="..\..\src\stdlib\SDL_murmur3.c" />
+     <ClCompile Include="..\..\src\stdlib\SDL_qsort.c" />
+     <ClCompile Include="..\..\src\stdlib\SDL_random.c" />
+diff --git a/VisualC/SDL/SDL.vcxproj.filters b/VisualC/SDL/SDL.vcxproj.filters
+index 111db56c2..b76b11dff 100644
+--- a/VisualC/SDL/SDL.vcxproj.filters
++++ b/VisualC/SDL/SDL.vcxproj.filters
+@@ -1571,4 +1571,7 @@
+   <ItemGroup>
+     <MASM Include="..\..\src\stdlib\SDL_mslibc_x64.masm" />
+   </ItemGroup>
++  <ItemGroup>
++    <MARMASM Include="..\..\src\stdlib\SDL_mslibc_arm64.asm" />
++  </ItemGroup>
+ </Project>
+diff --git a/src/stdlib/SDL_mslibc.c b/src/stdlib/SDL_mslibc.c
+index a527bf75d..60b5fb84d 100644
+--- a/src/stdlib/SDL_mslibc.c
++++ b/src/stdlib/SDL_mslibc.c
+@@ -730,6 +730,10 @@ void __declspec(naked) _alloca_probe_16(void)
+ 
+ #ifdef _M_ARM64
+ 
++// Note: A proper __chkstk implementation for ARM64 is provided in SDL_mslibc_arm64.asm
++// for shared library builds. This stub is kept for static library builds where the
++// assembly file may not be included, and the compiler-generated __chkstk calls
++// can be satisfied by this empty implementation (which may not be as robust).
+ void __chkstk(void);
+ void __chkstk() {
+ }

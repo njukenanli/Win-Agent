@@ -1,0 +1,43 @@
+diff --git a/hack/test-templates.sh b/hack/test-templates.sh
+index cf9d7f9f..619c7d62 100755
+--- a/hack/test-templates.sh
++++ b/hack/test-templates.sh
+@@ -91,8 +91,8 @@ case "$NAME" in
+ 	CONTAINER_ENGINE="docker"
+ 	;;
+ "wsl2")
+-	# TODO https://github.com/lima-vm/lima/issues/3267
+-	CHECKS["systemd"]=
++	# Systemd check is now enabled but non-strict since problematic services are disabled
++	CHECKS["systemd-strict"]=
+ 	# TODO https://github.com/lima-vm/lima/issues/3268
+ 	CHECKS["proxy-settings"]=
+ 	CHECKS["port-forwards"]=
+diff --git a/pkg/cidata/cidata.TEMPLATE.d/boot/02-wsl2-setup.sh b/pkg/cidata/cidata.TEMPLATE.d/boot/02-wsl2-setup.sh
+index ec187e3c..dbfa3b38 100755
+--- a/pkg/cidata/cidata.TEMPLATE.d/boot/02-wsl2-setup.sh
++++ b/pkg/cidata/cidata.TEMPLATE.d/boot/02-wsl2-setup.sh
+@@ -18,3 +18,23 @@ echo "${LIMA_CIDATA_USER} ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/9
+ 
+ # symlink CIDATA to the hardcoded path for requirement checks (TODO: make this not hardcoded)
+ sudo ln -sfFn "${LIMA_CIDATA_MNT}" /mnt/lima-cidata
++
++# Disable systemd services that are known to fail in WSL2 environment
++# These services are not needed or don't work properly in WSL2
++if command -v systemctl >/dev/null 2>&1; then
++	# Disable auditd and related services
++	# auditd requires kernel audit support which may not be available in WSL2
++	for service in auditd.service audit-rules.service; do
++		if systemctl list-unit-files "${service}" >/dev/null 2>&1; then
++			sudo systemctl disable "${service}" 2>/dev/null || true
++			sudo systemctl mask "${service}" 2>/dev/null || true
++		fi
++	done
++	
++	# Disable NetworkManager-wait-online.service
++	# This service waits for network connectivity which can cause delays in WSL2 mirrored networking mode
++	if systemctl list-unit-files NetworkManager-wait-online.service >/dev/null 2>&1; then
++		sudo systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
++		sudo systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
++	fi
++fi

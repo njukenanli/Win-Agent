@@ -1,0 +1,61 @@
+diff --git a/pkg/specgenutil/specgen.go b/pkg/specgenutil/specgen.go
+index 2a3171e8c3..efb39b7541 100644
+--- a/pkg/specgenutil/specgen.go
++++ b/pkg/specgenutil/specgen.go
+@@ -28,6 +28,19 @@ const (
+ 	rlimitPrefix = "rlimit_"
+ )
+ 
++// isSeccompSpecialKeyword checks if the value is a special seccomp keyword
++// that should not be treated as a file path.
++func isSeccompSpecialKeyword(value string) bool {
++	// Special seccomp keywords as defined in Kubernetes and Docker
++	switch value {
++	case "unconfined":
++		return true
++	case "runtime/default", "docker/default":
++		return true
++	}
++	return false
++}
++
+ func getCPULimits(c *entities.ContainerCreateOptions) *specs.LinuxCPU {
+ 	cpu := &specs.LinuxCPU{}
+ 	hasLimits := false
+@@ -737,10 +750,18 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
+ 		case "proc-opts":
+ 			s.ProcOpts = strings.Split(val, ",")
+ 		case "seccomp":
+-			convertedPath, err := specgen.ConvertWinMountPath(val)
+-			if err != nil {
+-				// If the conversion fails, use the original path
++			// Special seccomp keywords like "unconfined", "runtime/default", "docker/default"
++			// should not be treated as file paths and should not be converted
++			var convertedPath string
++			if isSeccompSpecialKeyword(val) {
+ 				convertedPath = val
++			} else {
++				var err error
++				convertedPath, err = specgen.ConvertWinMountPath(val)
++				if err != nil {
++					// If the conversion fails, use the original path
++					convertedPath = val
++				}
+ 			}
+ 			s.SeccompProfilePath = convertedPath
+ 			s.Annotations[define.InspectAnnotationSeccomp] = convertedPath
+diff --git a/pkg/specgenutil/specgenutil_windows_test.go b/pkg/specgenutil/specgenutil_windows_test.go
+index 88c97e3bda..880a6d4b2d 100644
+--- a/pkg/specgenutil/specgenutil_windows_test.go
++++ b/pkg/specgenutil/specgenutil_windows_test.go
+@@ -32,6 +32,10 @@ func TestSeccompProfilePath(t *testing.T) {
+ 		{`c`, cwd_wsl + "/c"},
+ 		{`\\computer\loc`, `\\computer\loc`},
+ 		{`\\.\drive\loc`, "/mnt/wsl/drive/loc"},
++		// Special seccomp keywords should not be converted
++		{`unconfined`, "unconfined"},
++		{`runtime/default`, "runtime/default"},
++		{`docker/default`, "docker/default"},
+ 	}
+ 
+ 	f := func(secopt string) (*specgen.SpecGenerator, error) {

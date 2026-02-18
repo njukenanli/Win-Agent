@@ -1,0 +1,25 @@
+diff --git a/pkg/machine/wsl/machine.go b/pkg/machine/wsl/machine.go
+index 3355f6b2b5..8a9050cde9 100644
+--- a/pkg/machine/wsl/machine.go
++++ b/pkg/machine/wsl/machine.go
+@@ -311,13 +311,18 @@ func writeWslConf(dist string, user string) error {
+ }
+ 
+ func checkAndInstallWSL(reExec bool) (bool, error) {
+-	if wutil.IsWSLInstalled() {
++	isInstalled := wutil.IsWSLInstalled()
++	isFeatureEnabled := IsWSLFeatureEnabled()
++
++	// If both WSL is installed and features are enabled, we're good to go
++	if isInstalled && isFeatureEnabled {
+ 		return true, nil
+ 	}
+ 
+ 	admin := HasAdminRights()
+ 
+-	if !IsWSLFeatureEnabled() {
++	// If features are not enabled, attempt to install them regardless of WSL installation status
++	if !isFeatureEnabled {
+ 		return false, attemptFeatureInstall(reExec, admin)
+ 	}
+ 

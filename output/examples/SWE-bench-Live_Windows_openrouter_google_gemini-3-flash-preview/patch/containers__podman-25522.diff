@@ -1,0 +1,14 @@
+diff --git a/pkg/machine/wsl/machine.go b/pkg/machine/wsl/machine.go
+index 3355f6b2b5..ec1df63bd9 100644
+--- a/pkg/machine/wsl/machine.go
++++ b/pkg/machine/wsl/machine.go
+@@ -623,6 +623,9 @@ func obtainGlobalConfigLock() (*fileLock, error) {
+ }
+ 
+ func IsWSLFeatureEnabled() bool {
++	if wutil.IsWSLInstalled() {
++		return true
++	}
+ 	return wutil.SilentExec(wutil.FindWSL(), "--set-default-version", "2") == nil
+ }
+ 

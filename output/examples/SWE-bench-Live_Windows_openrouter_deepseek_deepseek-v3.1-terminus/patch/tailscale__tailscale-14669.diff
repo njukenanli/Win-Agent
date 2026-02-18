@@ -1,0 +1,32 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/clientupdate/clientupdate_windows.go b/clientupdate/clientupdate_wi
+indows.go
+index 973722974..343c7dfc1 100644
+--- a/clientupdate/clientupdate_windows.go
++++ b/clientupdate/clientupdate_windows.go
+@@ -162,7 +162,7 @@ func (up *Updater) updateWindows() error {
+ func (up *Updater) installMSI(msi string) error {
+        var err error
+        for tries := 0; tries < 2; tries++ {
+-               cmd := exec.Command("msiexec.exe", "/i", filepath.Base(msi), "/q
+quiet", "/norestart", "/qn")
++               cmd := exec.Command("msiexec.exe", "/i", filepath.Base(msi), "/q
+quiet", "/norestart")
+                cmd.Dir = filepath.Dir(msi)
+                cmd.Stdout = up.Stdout
+                cmd.Stderr = up.Stderr
+@@ -178,7 +178,7 @@ func (up *Updater) installMSI(msi string) error {
+                }
+                // Assume it's a downgrade, which msiexec won't permit. Uninstal
+ll our current version first.
+                up.Logf("Uninstalling current version %q for downgrade...", unin
+nstallVersion)
+-               cmd = exec.Command("msiexec.exe", "/x", msiUUIDForVersion(uninst
+tallVersion), "/norestart", "/qn")
++               cmd = exec.Command("msiexec.exe", "/x", msiUUIDForVersion(uninst
+tallVersion), "/norestart")
+                cmd.Stdout = up.Stdout
+                cmd.Stderr = up.Stderr
+                cmd.Stdin = os.Stdin
+PS>
+PS>prompt

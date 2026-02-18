@@ -1,0 +1,24 @@
+diff --git a/clientupdate/clientupdate_windows.go b/clientupdate/clientupdate_windows.go
+index 973722974..2ca848da1 100644
+--- a/clientupdate/clientupdate_windows.go
++++ b/clientupdate/clientupdate_windows.go
+@@ -166,7 +166,9 @@ func (up *Updater) installMSI(msi string) error {
+ 		cmd.Dir = filepath.Dir(msi)
+ 		cmd.Stdout = up.Stdout
+ 		cmd.Stderr = up.Stderr
+-		cmd.Stdin = os.Stdin
++		// Do not set cmd.Stdin. msiexec is run in non-interactive mode and will hang
++		// if it tries to read from stdin, especially in Group Policy deployments where
++		// there is no available stdin (running as SYSTEM during machine startup).
+ 		err = cmd.Run()
+ 		if err == nil {
+ 			break
+@@ -181,7 +183,7 @@ func (up *Updater) installMSI(msi string) error {
+ 		cmd = exec.Command("msiexec.exe", "/x", msiUUIDForVersion(uninstallVersion), "/norestart", "/qn")
+ 		cmd.Stdout = up.Stdout
+ 		cmd.Stderr = up.Stderr
+-		cmd.Stdin = os.Stdin
++		// Do not set cmd.Stdin for the same reason as above.
+ 		err = cmd.Run()
+ 		up.Logf("msiexec uninstall: %v", err)
+ 	}

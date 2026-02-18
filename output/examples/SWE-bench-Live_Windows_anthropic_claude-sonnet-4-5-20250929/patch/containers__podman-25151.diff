@@ -1,0 +1,40 @@
+diff --git a/pkg/machine/sockets/sockets.go b/pkg/machine/sockets/sockets.go
+index 62c15fc6a1..3d3964a0a2 100644
+--- a/pkg/machine/sockets/sockets.go
++++ b/pkg/machine/sockets/sockets.go
+@@ -115,7 +115,10 @@ func WaitForSocketWithBackoffs(maxBackoffs int, backoff time.Duration, socketPat
+ // ToUnixURL converts `socketLoc` into URL representation
+ func ToUnixURL(socketLoc *define.VMFile) (*url.URL, error) {
+ 	p := socketLoc.GetPath()
+-	if !filepath.IsAbs(p) {
++	// Check if path is absolute
++	// On Windows, filepath.IsAbs doesn't recognize Unix paths like /mnt/wsl/...
++	// So we also check if the path starts with / (Unix absolute path)
++	if !filepath.IsAbs(p) && !filepath.IsAbs(filepath.ToSlash(p)) && len(p) > 0 && p[0] != '/' {
+ 		return nil, fmt.Errorf("socket path must be absolute %q", p)
+ 	}
+ 	s, err := url.Parse("unix:///")
+diff --git a/pkg/machine/wsl/stubber.go b/pkg/machine/wsl/stubber.go
+index 073b0b04bf..00fd7877d4 100644
+--- a/pkg/machine/wsl/stubber.go
++++ b/pkg/machine/wsl/stubber.go
+@@ -186,10 +186,16 @@ func (w WSLStubber) RequireExclusiveActive() bool {
+ }
+ 
+ func (w WSLStubber) PostStartNetworking(mc *vmconfigs.MachineConfig, noInfo bool) error {
+-	socket, err := mc.APISocket()
+-	if err != nil {
+-		return err
++	// For WSL, the socket is located at /mnt/wsl/podman-sockets/<name>/podman-user.sock or podman-root.sock
++	// This is different from other platforms where mc.APISocket() returns a host-side socket path
++	var socketPath string
++	if mc.HostUser.Rootful {
++		socketPath = fmt.Sprintf("/mnt/wsl/podman-sockets/%s/podman-root.sock", mc.Name)
++	} else {
++		socketPath = fmt.Sprintf("/mnt/wsl/podman-sockets/%s/podman-user.sock", mc.Name)
+ 	}
++	socket := &define.VMFile{Path: socketPath}
++
+ 	winProxyOpts := machine.WinProxyOpts{
+ 		Name:           mc.Name,
+ 		IdentityPath:   mc.SSH.IdentityPath,

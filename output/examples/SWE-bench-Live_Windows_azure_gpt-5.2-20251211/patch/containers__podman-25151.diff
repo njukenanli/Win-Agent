@@ -1,0 +1,56 @@
+diff --git a/pkg/machine/machine_windows.go b/pkg/machine/machine_windows.go
+index 174980fc29..0a850598c2 100644
+--- a/pkg/machine/machine_windows.go
++++ b/pkg/machine/machine_windows.go
+@@ -141,7 +141,7 @@ func launchWinProxy(opts WinProxyOpts) (bool, string, error) {
+ 		return globalName, "", err
+ 	}
+ 
+-	stateDir, err := GetWinProxyStateDir(opts.Name, opts.VMType)
++	stateDir, err := getWinProxyStateDir(opts.Name, opts.VMType)
+ 	if err != nil {
+ 		return globalName, "", err
+ 	}
+@@ -189,6 +189,11 @@ func StopWinProxy(name string, vmtype define.VMType) error {
+ 	if err != nil {
+ 		return err
+ 	}
++	// No tid file means win-sshproxy is either not running or is running without
++	// having created the tid file; in either case do not treat as fatal.
++	if pid == 0 && tid == 0 {
++		return nil
++	}
+ 
+ 	proc, err := os.FindProcess(int(pid))
+ 	if err != nil {
+@@ -203,7 +208,7 @@ func StopWinProxy(name string, vmtype define.VMType) error {
+ }
+ 
+ func readWinProxyTid(name string, vmtype define.VMType) (uint32, uint32, string, error) {
+-	stateDir, err := GetWinProxyStateDir(name, vmtype)
++	stateDir, err := getWinProxyStateDir(name, vmtype)
+ 	if err != nil {
+ 		return 0, 0, "", err
+ 	}
+@@ -211,6 +216,12 @@ func readWinProxyTid(name string, vmtype define.VMType) (uint32, uint32, string,
+ 	tidFile := filepath.Join(stateDir, winSSHProxyTid)
+ 	contents, err := os.ReadFile(tidFile)
+ 	if err != nil {
++		// Podman 5.3+ can start win-sshproxy without creating the tid file.
++		// Treat missing tid file as a no-op for stopping so machine start does not
++		// emit an error about API forwarding being unavailable.
++		if errors.Is(err, fs.ErrNotExist) {
++			return 0, 0, tidFile, nil
++		}
+ 		return 0, 0, "", err
+ 	}
+ 
+@@ -259,6 +270,8 @@ func FindExecutablePeer(name string) (string, error) {
+ 	return filepath.Join(filepath.Dir(exe), name), nil
+ }
+ 
++var getWinProxyStateDir = GetWinProxyStateDir
++
+ func GetWinProxyStateDir(name string, vmtype define.VMType) (string, error) {
+ 	dir, err := env.GetDataDir(vmtype)
+ 	if err != nil {

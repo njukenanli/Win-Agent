@@ -1,0 +1,61 @@
+diff --git a/.github/workflows/e2e-main.yaml b/.github/workflows/e2e-main.yaml
+index b1851fe12c5..f1bf43b0810 100644
+--- a/.github/workflows/e2e-main.yaml
++++ b/.github/workflows/e2e-main.yaml
+@@ -175,8 +175,7 @@ jobs:
+             !./tests/**/traces/raw
+ 
+   win-update-e2e-test:
+-    name: win update e2e tests - ${{ matrix.installation }}
+-    runs-on: windows-2025
++    name: win update e2e tests - ${{ matrix.installation }} - ${{ matrix.os }}
+     # disable on forks as secrets are not available
+     if: github.event.repository.fork == false
+     permissions:
+@@ -187,9 +186,11 @@ jobs:
+     strategy:
+       fail-fast: false
+       matrix:
++        os: [windows-2025, windows-arm-11]
+         installation: ['vanilla', 'custom-extensions']
+         exclude:
+         - installation: ${{ (github.event.inputs.update_with_extensions && github.event.inputs.update_with_extensions == 'true') && 'N/A' || 'custom-extensions' }}
++    runs-on: ${{ matrix.os }}
+     steps:
+       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+         with:
+@@ -221,7 +222,13 @@ jobs:
+           ELECTRON_ENABLE_INSPECT: true
+         run: |
+           pnpm compile:current --win nsis
+-          $path=('./dist/win-unpacked/Podman Desktop.exe' | resolve-path).ProviderPath
++          $runnerArch=$env:RUNNER_ARCH
++          $unpackedPath = "dist/win-unpacked"
++          if ($runnerArch -eq 'ARM64') {
++            $unpackedPath = "dist/win-arm64-unpacked"
++          }
++          echo ("PD_DIST_PATH=" + $unpackedPath) >> $env:GITHUB_ENV
++          $path=("./$unpackedPath/Podman Desktop.exe" | resolve-path).ProviderPath
+           echo $path
+           echo ("PODMAN_DESKTOP_BINARY=" + $path) >> $env:GITHUB_ENV
+ 
+diff --git a/.github/workflows/pr-check.yaml b/.github/workflows/pr-check.yaml
+index b3817d2b3f5..fe153a398ef 100644
+--- a/.github/workflows/pr-check.yaml
++++ b/.github/workflows/pr-check.yaml
+@@ -429,12 +429,12 @@ jobs:
+           fi
+ 
+   win-update-e2e-test:
+-    name: win update e2e tests
++    name: win update e2e tests - ${{ matrix.os }}
+     needs: detect_pnpm_changes
+     strategy:
+       fail-fast: false
+-      matrix: 
+-        os: [windows-2025]
++      matrix:
++        os: [windows-2025, windows-arm-11]
+     if: contains(github.event.pull_request.labels.*.name, 'area/update') || needs.detect_pnpm_changes.outputs.pnpm_lock_changed == 'true'
+     runs-on: ${{ matrix.os }}
+     timeout-minutes: 60

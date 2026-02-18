@@ -1,0 +1,165 @@
+diff --git a/lib/srv/desktop/discovery.go b/lib/srv/desktop/discovery.go
+index 3ae2011128..d7f4298798 100644
+--- a/lib/srv/desktop/discovery.go
++++ b/lib/srv/desktop/discovery.go
+@@ -38,6 +38,7 @@ import (
+ 	"github.com/gravitational/teleport/lib/service/servicecfg"
+ 	"github.com/gravitational/teleport/lib/services"
+ 	"github.com/gravitational/teleport/lib/services/readonly"
++	"github.com/gravitational/teleport/lib/srv"
+ 	"github.com/gravitational/teleport/lib/utils"
+ 	"github.com/gravitational/teleport/lib/winpki"
+ )
+@@ -203,17 +204,97 @@ func (s *WindowsService) getDesktopsFromLDAP() map[string]types.WindowsDesktop {
+ }
+ 
+ func (s *WindowsService) updateDesktop(ctx context.Context, desktop, _ types.WindowsDesktop) error {
++	// For updates, stop the old heartbeat and start a new one
++	if err := s.stopDynamicDesktopHeartbeat(desktop.GetName()); err != nil {
++		s.cfg.Logger.WarnContext(ctx, "Failed to stop heartbeat for dynamic desktop", "desktop", desktop.GetName(), "error", err)
++	}
+ 	return s.upsertDesktop(ctx, desktop)
+ }
+ 
+ func (s *WindowsService) upsertDesktop(ctx context.Context, d types.WindowsDesktop) error {
++	// Only start heartbeats for dynamic desktops (those created from dynamic_windows_desktop resources)
++	// Static and LDAP-discovered desktops have their own heartbeat mechanisms
++	if d.Origin() == types.OriginDynamic && len(s.cfg.ResourceMatchers) > 0 {
++		if err := s.startDynamicDesktopHeartbeat(d); err != nil {
++			s.cfg.Logger.WarnContext(ctx, "Failed to start heartbeat for dynamic desktop", "desktop", d.GetName(), "error", err)
++			// Don't fail the upsert if heartbeat fails - the desktop will still be created
++		}
++	}
+ 	return s.cfg.AuthClient.UpsertWindowsDesktop(ctx, d)
+ }
+ 
+ func (s *WindowsService) deleteDesktop(ctx context.Context, d types.WindowsDesktop) error {
++	// Stop the heartbeat for this desktop
++	if err := s.stopDynamicDesktopHeartbeat(d.GetName()); err != nil {
++		s.cfg.Logger.WarnContext(ctx, "Failed to stop heartbeat for dynamic desktop", "desktop", d.GetName(), "error", err)
++	}
+ 	return s.cfg.AuthClient.DeleteWindowsDesktop(ctx, d.GetHostID(), d.GetName())
+ }
+ 
++// startDynamicDesktopHeartbeat starts a heartbeat for a dynamic desktop.
++// The heartbeat continuously announces the windows_desktop resource, ensuring
++// that if it gets deleted externally, it will be recreated on the next heartbeat.
++func (s *WindowsService) startDynamicDesktopHeartbeat(desktop types.WindowsDesktop) error {
++	// Stop any existing heartbeat for this desktop first
++	s.stopDynamicDesktopHeartbeat(desktop.GetName())
++
++	heartbeat, err := srv.NewHeartbeat(srv.HeartbeatConfig{
++		Context:         s.closeCtx,
++		Component:       teleport.ComponentWindowsDesktop,
++		Mode:            srv.HeartbeatModeWindowsDesktop,
++		Announcer:       s.cfg.AccessPoint,
++		GetServerInfo:   s.dynamicDesktopHeartbeatInfo(desktop),
++		KeepAlivePeriod: apidefaults.ServerKeepAliveTTL(),
++		AnnouncePeriod:  apidefaults.ServerAnnounceTTL/2 + utils.RandomDuration(apidefaults.ServerAnnounceTTL/10),
++		CheckPeriod:     5 * time.Minute,
++		ServerTTL:       apidefaults.ServerAnnounceTTL,
++		OnHeartbeat:     s.cfg.Heartbeat.OnHeartbeat,
++	})
++	if err != nil {
++		return trace.Wrap(err)
++	}
++	go func() {
++		if err := heartbeat.Run(); err != nil && !errors.Is(err, context.Canceled) {
++			s.cfg.Logger.ErrorContext(s.closeCtx, "dynamic desktop heartbeat ended", "desktop", desktop.GetName(), "error", err)
++		}
++	}()
++
++	s.dynamicDesktopHeartbeatsMu.Lock()
++	s.dynamicDesktopHeartbeats[desktop.GetName()] = heartbeat
++	s.dynamicDesktopHeartbeatsMu.Unlock()
++
++	return nil
++}
++
++// stopDynamicDesktopHeartbeat stops the heartbeat for a dynamic desktop
++func (s *WindowsService) stopDynamicDesktopHeartbeat(name string) error {
++	s.dynamicDesktopHeartbeatsMu.Lock()
++	heartbeat, ok := s.dynamicDesktopHeartbeats[name]
++	if ok {
++		delete(s.dynamicDesktopHeartbeats, name)
++	}
++	s.dynamicDesktopHeartbeatsMu.Unlock()
++
++	if !ok {
++		return nil
++	}
++	return heartbeat.Close()
++}
++
++// dynamicDesktopHeartbeatInfo generates the heartbeat info function for a dynamic desktop.
++// This function is called periodically by the heartbeat to get the current state of the
++// desktop resource that should be announced.
++func (s *WindowsService) dynamicDesktopHeartbeatInfo(desktop types.WindowsDesktop) func() (types.Resource, error) {
++	return func() (types.Resource, error) {
++		// Create a fresh copy of the desktop with updated expiry.
++		// We use the original desktop spec that was created from the
++		// dynamic_windows_desktop resource to ensure consistency.
++		d := desktop.Copy()
++		d.SetExpiry(s.cfg.Clock.Now().UTC().Add(apidefaults.ServerAnnounceTTL))
++		return d, nil
++	}
++}
++
+ func (s *WindowsService) applyLabelsFromLDAP(entry *ldap.Entry, labels map[string]string, cfg *servicecfg.LDAPDiscoveryConfig) {
+ 	// apply common LDAP labels by default
+ 	labels[types.OriginLabel] = types.OriginDynamic
+diff --git a/lib/srv/desktop/windows_server.go b/lib/srv/desktop/windows_server.go
+index 34301ede3a..17ada87f8d 100644
+--- a/lib/srv/desktop/windows_server.go
++++ b/lib/srv/desktop/windows_server.go
+@@ -136,6 +136,12 @@ type WindowsService struct {
+ 	// the reconciler goroutine.
+ 	lastDiscoveryResults map[string]types.WindowsDesktop
+ 
++	// dynamicDesktopHeartbeats stores heartbeat instances for dynamic desktops.
++	// These heartbeats ensure that if a windows_desktop resource is deleted externally,
++	// it will be recreated on the next heartbeat.
++	dynamicDesktopHeartbeats     map[string]srv.HeartbeatI
++	dynamicDesktopHeartbeatsMu   sync.Mutex
++
+ 	// Windows hosts discovered via LDAP likely won't resolve with the
+ 	// default DNS resolver, so we need a custom resolver that will
+ 	// query the domain controller.
+@@ -360,12 +366,13 @@ func NewWindowsService(cfg WindowsServiceConfig) (*WindowsService, error) {
+ 			ClusterName:   clusterName.GetClusterName(),
+ 			AcceptedUsage: []string{teleport.UsageWindowsDesktopOnly},
+ 		},
+-		dnsResolver: resolver,
+-		lc:          winpki.NewLDAPClient(nil),
+-		clusterName: clusterName.GetClusterName(),
+-		closeCtx:    ctx,
+-		close:       close,
+-		auditCache:  newSharedDirectoryAuditCache(),
++		dnsResolver:              resolver,
++		lc:                       winpki.NewLDAPClient(nil),
++		clusterName:              clusterName.GetClusterName(),
++		closeCtx:                 ctx,
++		close:                    close,
++		auditCache:               newSharedDirectoryAuditCache(),
++		dynamicDesktopHeartbeats: make(map[string]srv.HeartbeatI),
+ 
+ 		// For now, NLA is opt-in via an environment variable.
+ 		// We'll make it the default behavior in a future release.
+@@ -691,6 +698,17 @@ func (s *WindowsService) Close() error {
+ 	if s.ldapCertRenew != nil {
+ 		s.ldapCertRenew.Stop()
+ 	}
++
++	// Stop all dynamic desktop heartbeats
++	s.dynamicDesktopHeartbeatsMu.Lock()
++	for name, heartbeat := range s.dynamicDesktopHeartbeats {
++		if err := heartbeat.Close(); err != nil {
++			s.cfg.Logger.WarnContext(context.Background(), "Failed to close dynamic desktop heartbeat", "desktop", name, "error", err)
++		}
++	}
++	s.dynamicDesktopHeartbeats = make(map[string]srv.HeartbeatI)
++	s.dynamicDesktopHeartbeatsMu.Unlock()
++
+ 	s.close()
+ 	s.lc.Close()
+ 	return nil

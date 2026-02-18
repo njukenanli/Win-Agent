@@ -1,0 +1,37 @@
+diff --git a/tests/stress/ebpf_stress_tests.cpp b/tests/stress/ebpf_stress_tests.cpp
+index 45285e62..3acc84b0 100644
+--- a/tests/stress/ebpf_stress_tests.cpp
++++ b/tests/stress/ebpf_stress_tests.cpp
+@@ -116,7 +116,7 @@ main(int argc, char* argv[])
+         Opt(_test_program_list_arg,
+             "program names")["-tp"]["--test-programs"]("Comma separated JIT compiled program names") |
+         Opt(_test_threads_count_arg, "thread count")["-tt"]["--test-threads"]("Count of threads per test") |
+-        Opt(_test_duration_arg, "test duration")["-td"]["--test-duration"]("Test duration (per-test) in seconds") |
++        Opt(_test_duration_arg, "test duration")["-td"]["--test-duration"]("Test duration (per-test) in minutes") |
+         Opt(_test_verbose_output_arg,
+             "verbosity flag")["-vo"]["--verbose-output"]("Verbosity flag (1 to enable, 0 to disable(default))") |
+         Opt(_extension_restart_arg, "restart extension/provider flag")["-er"]["--extension-restart"](
+diff --git a/tests/stress/km/stress_tests_km.cpp b/tests/stress/km/stress_tests_km.cpp
+index 53a9e00e..00b00ba5 100644
+--- a/tests/stress/km/stress_tests_km.cpp
++++ b/tests/stress/km/stress_tests_km.cpp
+@@ -81,7 +81,8 @@ enum class service_state_type : uint32_t
+ };
+ 
+ static bool
+-_set_extension_state(SC_HANDLE service_handle, service_state_type service_state, uint32_t timeout)
++_set_extension_state(
++101|    const std::string& extension_name, SC_HANDLE service_handle, service_state_type service_state, uint32_t timeout)
+ {
+     std::string ss = (service_state == service_state_type::STOP ? "STOP" : "START");
+     using sc = std::chrono::steady_clock;
+@@ -149,7 +150,8 @@ _set_extension_state(SC_HANDLE service_handle, service_state_type service_state,
+         // We ignore the return status here as this API returns an error if the driver is actually starting or is
+         // already running which is a no-op for us. This can happen if the driver goes into a 'start pending/running'
+         // state _after_ the QueryServiceStatusEx above returns.
+-        (void)system("net start NetEbpfExt >NUL 2>&1");
++        std::string command = "net start " + extension_name + " >NUL 2>&1";
++161|        (void)system(command.c_str());
+         LOG_VERBOSE("Issued extension START");
+ 
+         // Sleep for a bit to let the SCM process our command.

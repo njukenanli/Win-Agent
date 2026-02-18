@@ -1,0 +1,292 @@
+diff --git a/pkg/virt-api/webhooks/validating-webhook/admitters/vmi-create-admitter.go b/pkg/virt-api/webhooks/validating-webhook/admitters/vmi-create-admitter.go
+index 1a251490c4..76693dd58b 100644
+--- a/pkg/virt-api/webhooks/validating-webhook/admitters/vmi-create-admitter.go
++++ b/pkg/virt-api/webhooks/validating-webhook/admitters/vmi-create-admitter.go
+@@ -1448,28 +1448,66 @@ func validateFirmwareACPI(field *k8sfield.Path, spec *v1.VirtualMachineInstanceS
+ 	}
+ 
+ 	acpi := spec.Domain.Firmware.ACPI
+-	for _, volume := range spec.Volumes {
+-		if acpi.SlicNameRef != volume.Name {
+-			continue
++
++	// Validate SLIC table reference if specified
++	if acpi.SlicNameRef != "" {
++		slicFound := false
++		for _, volume := range spec.Volumes {
++			if acpi.SlicNameRef != volume.Name {
++				continue
++			}
++			slicFound = true
++
++			switch {
++			case volume.Secret != nil:
++			default:
++				causes = append(causes, metav1.StatusCause{
++					Type:    metav1.CauseTypeFieldValueInvalid,
++					Message: fmt.Sprintf("%s refers to Volume of unsupported type.", field.String()),
++					Field:   field.Child("slicNameRef").String(),
++				})
++			}
++			break
+ 		}
+ 
+-		switch {
+-		case volume.Secret != nil:
+-		default:
++		if !slicFound {
+ 			causes = append(causes, metav1.StatusCause{
+ 				Type:    metav1.CauseTypeFieldValueInvalid,
+-				Message: fmt.Sprintf("%s refers to Volume of unsupported type.", field.String()),
++				Message: fmt.Sprintf("%s does not have a matching Volume.", field.String()),
+ 				Field:   field.Child("slicNameRef").String(),
+ 			})
+ 		}
+-		return causes
+ 	}
+ 
+-	causes = append(causes, metav1.StatusCause{
+-		Type:    metav1.CauseTypeFieldValueInvalid,
+-		Message: fmt.Sprintf("%s does not have a matching Volume.", field.String()),
+-		Field:   field.String(),
+-	})
++	// Validate MSDM table reference if specified
++	if acpi.MsdmNameRef != "" {
++		msdmFound := false
++		for _, volume := range spec.Volumes {
++			if acpi.MsdmNameRef != volume.Name {
++				continue
++			}
++			msdmFound = true
++
++			switch {
++			case volume.Secret != nil:
++			default:
++				causes = append(causes, metav1.StatusCause{
++					Type:    metav1.CauseTypeFieldValueInvalid,
++					Message: fmt.Sprintf("%s refers to Volume of unsupported type.", field.String()),
++					Field:   field.Child("msdmNameRef").String(),
++				})
++			}
++			break
++		}
++
++		if !msdmFound {
++			causes = append(causes, metav1.StatusCause{
++				Type:    metav1.CauseTypeFieldValueInvalid,
++				Message: fmt.Sprintf("%s does not have a matching Volume.", field.String()),
++				Field:   field.Child("msdmNameRef").String(),
++			})
++		}
++	}
+ 
+ 	return causes
+ }
+diff --git a/pkg/virt-launcher/virtwrap/api/schema.go b/pkg/virt-launcher/virtwrap/api/schema.go
+index 09627b7140..85dec640fa 100644
+--- a/pkg/virt-launcher/virtwrap/api/schema.go
++++ b/pkg/virt-launcher/virtwrap/api/schema.go
+@@ -998,7 +998,8 @@ type OSType struct {
+ }
+ 
+ type OSACPI struct {
+-	Table ACPITable `xml:"table,omitempty"`
++	Table  ACPITable   `xml:"table,omitempty"`
++	Tables []ACPITable `xml:"table"`
+ }
+ 
+ type ACPITable struct {
+diff --git a/pkg/virt-launcher/virtwrap/converter/converter.go b/pkg/virt-launcher/virtwrap/converter/converter.go
+index 3d4f4b8be0..67c9951b20 100644
+--- a/pkg/virt-launcher/virtwrap/converter/converter.go
++++ b/pkg/virt-launcher/virtwrap/converter/converter.go
+@@ -1232,40 +1232,68 @@ func Convert_v1_Firmware_To_related_apis(vmi *v1.VirtualMachineInstance, domain
+ 	}
+ 
+ 	if firmware.ACPI != nil {
+-		path, err := getSlicMountedPath(vmi.Spec.Volumes, firmware.ACPI.SlicNameRef)
+-		if err != nil {
+-			log.Log.Object(vmi).Warningf("Failed to get supported path for Volume: %s", firmware.ACPI.SlicNameRef)
+-			return err
+-		}
++		var acpiTables []api.ACPITable
+ 
+-		domain.Spec.OS.ACPI = &api.OSACPI{
+-			Table: api.ACPITable{
++		// Handle SLIC table if specified
++		if firmware.ACPI.SlicNameRef != "" {
++			path, err := getACPITableMountedPath(vmi.Spec.Volumes, firmware.ACPI.SlicNameRef, "slic.bin")
++			if err != nil {
++				log.Log.Object(vmi).Warningf("Failed to get supported path for SLIC Volume: %s", firmware.ACPI.SlicNameRef)
++				return err
++			}
++			acpiTables = append(acpiTables, api.ACPITable{
+ 				Type: "slic",
+ 				Path: path,
+-			},
++			})
++		}
++
++		// Handle MSDM table if specified
++		if firmware.ACPI.MsdmNameRef != "" {
++			path, err := getACPITableMountedPath(vmi.Spec.Volumes, firmware.ACPI.MsdmNameRef, "msdm.bin")
++			if err != nil {
++				log.Log.Object(vmi).Warningf("Failed to get supported path for MSDM Volume: %s", firmware.ACPI.MsdmNameRef)
++				return err
++			}
++			acpiTables = append(acpiTables, api.ACPITable{
++				Type: "msdm",
++				Path: path,
++			})
++		}
++
++		// Set ACPI tables if any were configured
++		if len(acpiTables) > 0 {
++			domain.Spec.OS.ACPI = &api.OSACPI{
++				Tables: acpiTables,
++			}
+ 		}
+ 	}
+ 
+ 	return nil
+ }
+ 
+-func getSlicMountedPath(volumes []v1.Volume, name string) (string, error) {
+-	// We need to know the the volume type referred by @name
++func getACPITableMountedPath(volumes []v1.Volume, name string, filename string) (string, error) {
++	// We need to know the volume type referred by @name
+ 	for _, volume := range volumes {
+ 		if volume.Name != name {
+ 			continue
+ 		}
+ 
+ 		if volume.Secret == nil {
+-			return "", fmt.Errorf("Firmware's slic volume type is unsupported")
++			return "", fmt.Errorf("Firmware's ACPI table volume type is unsupported")
+ 		}
+ 
+-		// Return path to slic binary data
++		// Return path to ACPI table binary data
+ 		sourcePath := config.GetSecretSourcePath(name)
+-		return filepath.Join(sourcePath, "slic.bin"), nil
++		return filepath.Join(sourcePath, filename), nil
+ 	}
+ 
+-	return "", fmt.Errorf("Firmware's slic volume type not found")
++	return "", fmt.Errorf("Firmware's ACPI table volume not found")
++}
++
++// getSlicMountedPath is deprecated, use getACPITableMountedPath instead
++// Kept for backward compatibility
++func getSlicMountedPath(volumes []v1.Volume, name string) (string, error) {
++	return getACPITableMountedPath(volumes, name, "slic.bin")
+ }
+ 
+ func hasIOThreads(vmi *v1.VirtualMachineInstance) bool {
+diff --git a/pkg/virt-launcher/virtwrap/converter/converter_test.go b/pkg/virt-launcher/virtwrap/converter/converter_test.go
+index fb6bb305b4..8079087915 100644
+--- a/pkg/virt-launcher/virtwrap/converter/converter_test.go
++++ b/pkg/virt-launcher/virtwrap/converter/converter_test.go
+@@ -2948,12 +2948,13 @@ var _ = Describe("Converter", func() {
+ 			}
+ 			if isSupported {
+ 				domainSpec := vmiToDomainXMLToDomainSpec(vmi, c)
+-				Expect(domainSpec.OS.ACPI.Table.Type).To(Equal("slic"))
+-				Expect(domainSpec.OS.ACPI.Table.Path).To(Equal(path))
++				Expect(domainSpec.OS.ACPI.Tables).To(HaveLen(1))
++				Expect(domainSpec.OS.ACPI.Tables[0].Type).To(Equal("slic"))
++				Expect(domainSpec.OS.ACPI.Tables[0].Path).To(Equal(path))
+ 			} else {
+ 				domain := &api.Domain{}
+ 				err := Convert_v1_VirtualMachineInstance_To_api_Domain(vmi, domain, c)
+-				Expect(err).To(MatchError(ContainSubstring("Firmware's slic volume type is unsupported")))
++				Expect(err).To(MatchError(ContainSubstring("Firmware's ACPI table volume type is unsupported")))
+ 			}
+ 		},
+ 			Entry("Secret set",
+@@ -2967,6 +2968,70 @@ var _ = Describe("Converter", func() {
+ 					},
+ 				}, false, ""),
+ 		)
++
++		DescribeTable("msdm ACPI table should be set to", func(source v1.VolumeSource, isSupported bool, path string) {
++			msdmName := "msdm"
++			vmi.Spec.Domain.Firmware = &v1.Firmware{ACPI: &v1.ACPI{MsdmNameRef: msdmName}}
++			vmi.Spec.Volumes = []v1.Volume{
++				{
++					Name:         msdmName,
++					VolumeSource: source,
++				},
++			}
++			c = &ConverterContext{
++				Architecture:   archconverter.NewConverter(runtime.GOARCH),
++				VirtualMachine: vmi,
++				AllowEmulation: true,
++			}
++			if isSupported {
++				domainSpec := vmiToDomainXMLToDomainSpec(vmi, c)
++				Expect(domainSpec.OS.ACPI.Tables).To(HaveLen(1))
++				Expect(domainSpec.OS.ACPI.Tables[0].Type).To(Equal("msdm"))
++				Expect(domainSpec.OS.ACPI.Tables[0].Path).To(Equal(path))
++			} else {
++				domain := &api.Domain{}
++				err := Convert_v1_VirtualMachineInstance_To_api_Domain(vmi, domain, c)
++				Expect(err).To(MatchError(ContainSubstring("Firmware's ACPI table volume type is unsupported")))
++			}
++		},
++			Entry("Secret set",
++				v1.VolumeSource{
++					Secret: &v1.SecretVolumeSource{SecretName: "secret-msdm"},
++				}, true, filepath.Join(config.GetSecretSourcePath("msdm"), "msdm.bin")),
++			Entry("ConfigMap unset",
++				v1.VolumeSource{
++					ConfigMap: &v1.ConfigMapVolumeSource{
++						LocalObjectReference: k8sv1.LocalObjectReference{Name: "configmap-msdm"},
++					},
++				}, false, ""),
++		)
++
++		It("should support both SLIC and MSDM ACPI tables together", func() {
++			slicName := "slic"
++			msdmName := "msdm"
++			vmi.Spec.Domain.Firmware = &v1.Firmware{ACPI: &v1.ACPI{SlicNameRef: slicName, MsdmNameRef: msdmName}}
++			vmi.Spec.Volumes = []v1.Volume{
++				{
++					Name:         slicName,
++					VolumeSource: v1.VolumeSource{Secret: &v1.SecretVolumeSource{SecretName: "secret-slic"}},
++				},
++				{
++					Name:         msdmName,
++					VolumeSource: v1.VolumeSource{Secret: &v1.SecretVolumeSource{SecretName: "secret-msdm"}},
++				},
++			}
++			c = &ConverterContext{
++				Architecture:   archconverter.NewConverter(runtime.GOARCH),
++				VirtualMachine: vmi,
++				AllowEmulation: true,
++			}
++			domainSpec := vmiToDomainXMLToDomainSpec(vmi, c)
++			Expect(domainSpec.OS.ACPI.Tables).To(HaveLen(2))
++			Expect(domainSpec.OS.ACPI.Tables[0].Type).To(Equal("slic"))
++			Expect(domainSpec.OS.ACPI.Tables[0].Path).To(Equal(filepath.Join(config.GetSecretSourcePath("slic"), "slic.bin")))
++			Expect(domainSpec.OS.ACPI.Tables[1].Type).To(Equal("msdm"))
++			Expect(domainSpec.OS.ACPI.Tables[1].Path).To(Equal(filepath.Join(config.GetSecretSourcePath("msdm"), "msdm.bin")))
++		})
+ 	})
+ 
+ 	Context("Kernel Boot", func() {
+diff --git a/staging/src/kubevirt.io/api/core/v1/schema.go b/staging/src/kubevirt.io/api/core/v1/schema.go
+index 12043dc9f8..e0e10ae425 100644
+--- a/staging/src/kubevirt.io/api/core/v1/schema.go
++++ b/staging/src/kubevirt.io/api/core/v1/schema.go
+@@ -440,6 +440,10 @@ type ACPI struct {
+ 	// be a binary blob that follows the ACPI SLIC standard, see:
+ 	// https://learn.microsoft.com/en-us/previous-versions/windows/hardware/design/dn653305(v=vs.85)
+ 	SlicNameRef string `json:"slicNameRef,omitempty"`
++	// MsdmNameRef should match the volume name of a secret object. The data in the secret should
++	// be a binary blob that follows the ACPI MSDM standard, see:
++	// https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/acpi-system-description-tables
++	MsdmNameRef string `json:"msdmNameRef,omitempty"`
+ }
+ 
+ type Devices struct {

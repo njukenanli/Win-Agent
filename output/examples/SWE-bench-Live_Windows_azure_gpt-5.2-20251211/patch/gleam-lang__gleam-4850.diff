@@ -1,0 +1,48 @@
+diff --git a/compiler-core/src/requirement.rs b/compiler-core/src/requirement.rs
+index 036ae08b6..e392e8935 100644
+--- a/compiler-core/src/requirement.rs
++++ b/compiler-core/src/requirement.rs
+@@ -53,16 +53,16 @@ impl Requirement {
+     pub fn to_toml(&self, root_path: &Utf8Path) -> String {
+         match self {
+             Requirement::Hex { version: range } => {
+-                format!(r#"{{ version = "{range}" }}"#)
++                format!(r#"{{ version = \"{range}\" }}"#)
+             }
+             Requirement::Path { path } => {
+                 format!(
+-                    r#"{{ path = "{}" }}"#,
++                    r#"{{ path = \"{}\" }}"#,
+                     make_relative(root_path, path).as_str().replace('\\', "/")
+                 )
+             }
+             Requirement::Git { git: url, ref_ } => {
+-                format!(r#"{{ git = "{url}", ref = "{ref_}" }}"#)
++                format!(r#"{{ git = \"{url}\", ref = \"{ref_}\" }}"#)
+             }
+         }
+     }
+@@ -122,7 +122,7 @@ impl<'de> Visitor<'de> for RequirementVisitor {
+     where
+         E: de::Error,
+     {
+-        Ok(FromStr::from_str(value).expect("expected string"))
++        FromStr::from_str(value).map_err(de::Error::custom)
+     }
+ 
+     fn visit_map<M>(self, visitor: M) -> Result<Self::Value, M::Error>
+@@ -165,4 +165,14 @@ mod tests {
+             Requirement::git("https://github.com/gleam-lang/otp.git", "4d34935")
+         );
+     }
++
++    #[test]
++    fn invalid_version_string_is_a_deserialisation_error_not_a_panic() {
++        let toml = r#"dep = "javascript""#;
++        let result: std::result::Result<HashMap<String, Requirement>, toml::de::Error> =
++            toml::from_str(toml);
++        assert!(result.is_err());
++        let message = result.unwrap_err().to_string();
++        assert!(message.contains("javascript"));
++    }
+ }

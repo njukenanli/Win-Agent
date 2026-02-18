@@ -1,0 +1,56 @@
+diff --git a/sdk/identity/azure-identity/azure/identity/_credentials/default.py b/sdk/identity/azure-identity/azure/identity/_credentials/default.py
+index 798afb8428..19d941842c 100644
+--- a/sdk/identity/azure-identity/azure/identity/_credentials/default.py
++++ b/sdk/identity/azure-identity/azure/identity/_credentials/default.py
+@@ -11,6 +11,18 @@ from .._constants import EnvironmentVariables
+ from .._internal import get_default_authority, normalize_authority, within_dac, process_credential_exclusions
+ from .azure_powershell import AzurePowerShellCredential
+ from .browser import InteractiveBrowserCredential
++
++try:
++    # optional dependency (azure-identity-broker). When installed, it provides broker-enabled
++    # interactive auth (WAM on Windows).
++    from azure.identity.broker import InteractiveBrowserBrokerCredential  # type: ignore
++except Exception:  # pylint:disable=broad-except
++    # In this repository, azure-identity-broker is also available as a sibling package.
++    try:
++        from azure.identity.broker import InteractiveBrowserBrokerCredential  # type: ignore  # noqa: F401
++    except Exception:  # pylint:disable=broad-except
++        InteractiveBrowserBrokerCredential = None  # type: ignore
++
+ from .chained import ChainedTokenCredential
+ from .environment import EnvironmentCredential
+ from .managed_identity import ManagedIdentityCredential
+@@ -126,6 +138,10 @@ class DefaultAzureCredential(ChainedTokenCredential):
+         )
+         interactive_browser_client_id = kwargs.pop("interactive_browser_client_id", None)
+ 
++        # When enabled, DefaultAzureCredential will prefer a broker-enabled interactive browser credential
++        # (WAM on Windows), which can provide SSO with VS Code desktop.
++        enable_vscode_sso = kwargs.pop("enable_vscode_sso", False)
++
+         shared_cache_username = kwargs.pop("shared_cache_username", os.environ.get(EnvironmentVariables.AZURE_USERNAME))
+         shared_cache_tenant_id = kwargs.pop(
+             "shared_cache_tenant_id", os.environ.get(EnvironmentVariables.AZURE_TENANT_ID)
+@@ -243,14 +259,19 @@ class DefaultAzureCredential(ChainedTokenCredential):
+         if not exclude_developer_cli_credential:
+             credentials.append(AzureDeveloperCliCredential(process_timeout=process_timeout))
+         if not exclude_interactive_browser_credential:
++            # Prefer broker-enabled interactive auth when requested and available.
++            browser_credential_cls = InteractiveBrowserCredential
++            if enable_vscode_sso and InteractiveBrowserBrokerCredential is not None:
++                browser_credential_cls = InteractiveBrowserBrokerCredential  # type: ignore[assignment]
++
+             if interactive_browser_client_id:
+                 credentials.append(
+-                    InteractiveBrowserCredential(
++                    browser_credential_cls(
+                         tenant_id=interactive_browser_tenant_id, client_id=interactive_browser_client_id, **kwargs
+                     )
+                 )
+             else:
+-                credentials.append(InteractiveBrowserCredential(tenant_id=interactive_browser_tenant_id, **kwargs))
++                credentials.append(browser_credential_cls(tenant_id=interactive_browser_tenant_id, **kwargs))
+         within_dac.set(False)
+         super(DefaultAzureCredential, self).__init__(*credentials)
+ 

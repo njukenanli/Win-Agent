@@ -1,0 +1,13 @@
+diff --git a/pkg/hostagent/requirements.go b/pkg/hostagent/requirements.go
+index 00908655..171950fe 100644
+--- a/pkg/hostagent/requirements.go
++++ b/pkg/hostagent/requirements.go
+@@ -88,7 +88,7 @@ func prefixExportParam(script string) (string, error) {
+ 	// strings will be interpolated into single-quoted strings, so protect any existing single quotes
+ 	interpreter = strings.ReplaceAll(interpreter, "'", `'"'"'`)
+ 	exportParam = strings.ReplaceAll(exportParam, "'", `'"'"'`)
+-	return fmt.Sprintf("#!/bin/bash -c \"$(printf '%s%s')\"\n%s", exportParam, interpreter, script), nil
++	return fmt.Sprintf("#!/bin/bash -c \"$(printf '%%s%%s' '%s' '%s')\"\n%s", exportParam, interpreter, script), nil
+ }
+ 
+ func (a *HostAgent) waitForRequirement(r requirement) error {

@@ -1,0 +1,27 @@
+diff --git a/provisioner/powershell/provisioner.go b/provisioner/powershell/provisioner.go
+index 901707c22..8fd7f96c9 100644
+--- a/provisioner/powershell/provisioner.go
++++ b/provisioner/powershell/provisioner.go
+@@ -536,8 +536,20 @@ func (p *Provisioner) createFlattenedEnvVars(elevated bool) (flattened string) {
+ 		// Escape chars special to PS in each env var value
+ 		escapedEnvVarValue := psEscape.Replace(keyValue[1])
+ 		if escapedEnvVarValue != keyValue[1] {
+-			log.Printf("Env var %s converted to %s after escaping chars special to PS", keyValue[1],
+-				escapedEnvVarValue)
++			// Check if this is a sensitive variable before logging
++			isSensitive := false
++			for _, sensitiveVar := range p.config.PackerSensitiveVars {
++				if keyValue[0] == sensitiveVar {
++					isSensitive = true
++					break
++				}
++			}
++			if isSensitive {
++				log.Printf("Env var %s converted to <sensitive> after escaping chars special to PS", keyValue[0])
++			} else {
++				log.Printf("Env var %s converted to %s after escaping chars special to PS", keyValue[1],
++					escapedEnvVarValue)
++			}
+ 		}
+ 		envVars[keyValue[0]] = escapedEnvVarValue
+ 	}

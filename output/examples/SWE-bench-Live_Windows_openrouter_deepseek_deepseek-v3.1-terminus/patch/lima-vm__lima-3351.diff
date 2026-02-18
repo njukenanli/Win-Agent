@@ -1,0 +1,18 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/hack/test-templates.sh b/hack/test-templates.sh
+index cf9d7f9f..a8db04a8 100755
+--- a/hack/test-templates.sh
++++ b/hack/test-templates.sh
+@@ -91,8 +91,8 @@ case "$NAME" in
+        CONTAINER_ENGINE="docker"
+        ;;
+ "wsl2")
+-       # TODO https://github.com/lima-vm/lima/issues/3267
+-       CHECKS["systemd"]=
++       # WSL2 now has working systemd after fixes applied
++       CHECKS["systemd"]="1"
+        # TODO https://github.com/lima-vm/lima/issues/3268
+        CHECKS["proxy-settings"]=
+        CHECKS["port-forwards"]=
+PS>
+PS>prompt

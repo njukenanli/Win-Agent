@@ -1,0 +1,72 @@
+diff --git a/pkg/archive/zip/zip.go b/pkg/archive/zip/zip.go
+index 217b1dff..a0e7313c 100644
+--- a/pkg/archive/zip/zip.go
++++ b/pkg/archive/zip/zip.go
+@@ -10,6 +10,7 @@ import (
+ 	"io/fs"
+ 	"os"
+ 	"path/filepath"
++	"runtime"
+ 
+ 	"github.com/goreleaser/goreleaser/v2/pkg/config"
+ )
+@@ -100,6 +101,11 @@ func (a Archive) Add(f config.File) error {
+ 	}
+ 	if f.Info.Mode != 0 {
+ 		header.SetMode(f.Info.Mode)
++	} else if runtime.GOOS == "windows" && isBinary(f.Destination) {
++		// On Windows, binaries don't have the executable bit set in the file system.
++		// We need to force 0755 permissions for binaries in the ZIP archive so they
++		// are executable when extracted on Unix systems.
++		header.SetMode(0o755)
+ 	}
+ 	w, err := a.z.CreateHeader(header)
+ 	if err != nil {
+@@ -125,4 +131,26 @@ func (a Archive) Add(f config.File) error {
+ 	return err
+ }
+ 
++// isBinary determines if a file is likely a binary executable based on its name.
++// On Windows, binaries don't have the executable bit, so we need to detect them
++// by checking if they have no extension (typical for Unix binaries) or common
++// binary extensions.
++func isBinary(path string) bool {
++	name := filepath.Base(path)
++	ext := filepath.Ext(name)
++	
++	// Files without extensions are likely binaries (e.g., "myapp", "goreleaser")
++	if ext == "" {
++		return true
++	}
++	
++	// Common binary extensions
++	switch ext {
++	case ".exe", ".dll", ".so", ".dylib":
++		return true
++	}
++	
++	return false
++}
++
+ // TODO: test fileinfo stuff
+diff --git a/pkg/archive/zip/zip_test.go b/pkg/archive/zip/zip_test.go
+index 6f40ea0d..366b6f6c 100644
+--- a/pkg/archive/zip/zip_test.go
++++ b/pkg/archive/zip/zip_test.go
+@@ -10,7 +10,6 @@ import (
+ 	"testing"
+ 	"time"
+ 
+-	"github.com/goreleaser/goreleaser/v2/internal/testlib"
+ 	"github.com/goreleaser/goreleaser/v2/pkg/config"
+ 	"github.com/stretchr/testify/require"
+ )
+@@ -86,7 +85,7 @@ func TestZipFile(t *testing.T) {
+ 	paths := make([]string, len(r.File))
+ 	for i, zf := range r.File {
+ 		paths[i] = zf.Name
+-		if zf.Name == "sub1/executable" && !testlib.IsWindows() {
++		if zf.Name == "sub1/executable" {
+ 			require.NotEqualf(
+ 				t,
+ 				0,

@@ -1,0 +1,201 @@
+diff --git a/cmd/limactl/copy.go b/cmd/limactl/copy.go
+index d6333399..3d024258 100644
+--- a/cmd/limactl/copy.go
++++ b/cmd/limactl/copy.go
+@@ -80,32 +80,30 @@ func copyAction(cmd *cobra.Command, args []string) error {
+ 	// this assumes that ssh and scp come from the same place, but scp has no -V
+ 	legacySSH := sshutil.DetectOpenSSHVersion("ssh").LessThan(*semver.New("8.0.0"))
+ 	for _, arg := range args {
+-		path := strings.Split(arg, ":")
+-		switch len(path) {
+-		case 1:
++		instName, pathPart, isRemote := parseArgument(arg)
++		if !isRemote {
++			// Local path (no instance prefix)
+ 			scpArgs = append(scpArgs, arg)
+-		case 2:
+-			instName := path[0]
+-			inst, err := store.Inspect(instName)
+-			if err != nil {
+-				if errors.Is(err, os.ErrNotExist) {
+-					return fmt.Errorf("instance %q does not exist, run `limactl create %s` to create a new instance", instName, instName)
+-				}
+-				return err
+-			}
+-			if inst.Status == store.StatusStopped {
+-				return fmt.Errorf("instance %q is stopped, run `limactl start %s` to start the instance", instName, instName)
+-			}
+-			if legacySSH {
+-				scpFlags = append(scpFlags, "-P", fmt.Sprintf("%d", inst.SSHLocalPort))
+-				scpArgs = append(scpArgs, fmt.Sprintf("%s@127.0.0.1:%s", *inst.Config.User.Name, path[1]))
+-			} else {
+-				scpArgs = append(scpArgs, fmt.Sprintf("scp://%s@127.0.0.1:%d/%s", *inst.Config.User.Name, inst.SSHLocalPort, path[1]))
++			continue
++		}
++		// Remote path with instance:path format
++		inst, err := store.Inspect(instName)
++		if err != nil {
++			if errors.Is(err, os.ErrNotExist) {
++				return fmt.Errorf("instance %q does not exist, run `limactl create %s` to create a new instance", instName, instName)
+ 			}
+-			instances[instName] = inst
+-		default:
+-			return fmt.Errorf("path %q contains multiple colons", arg)
++			return err
+ 		}
++		if inst.Status == store.StatusStopped {
++			return fmt.Errorf("instance %q is stopped, run `limactl start %s` to start the instance", instName, instName)
++		}
++		if legacySSH {
++			scpFlags = append(scpFlags, "-P", fmt.Sprintf("%d", inst.SSHLocalPort))
++			scpArgs = append(scpArgs, fmt.Sprintf("%s@127.0.0.1:%s", *inst.Config.User.Name, pathPart))
++		} else {
++			scpArgs = append(scpArgs, fmt.Sprintf("scp://%s@127.0.0.1:%d/%s", *inst.Config.User.Name, inst.SSHLocalPort, pathPart))
++		}
++		instances[instName] = inst
+ 	}
+ 	if legacySSH && len(instances) > 1 {
+ 		return errors.New("more than one (instance) host is involved in this command, this is only supported for openSSH v8.0 or higher")
+@@ -142,3 +140,29 @@ func copyAction(cmd *cobra.Command, args []string) error {
+ 	// TODO: use syscall.Exec directly (results in losing tty?)
+ 	return sshCmd.Run()
+ }
++
++// parseArgument parses a path argument and returns (instanceName, path, isRemote)
++// On Windows, it correctly handles absolute paths with drive letters (e.g., C:\path or C:/path)
++// which should not be interpreted as instance:path format.
++func parseArgument(arg string) (string, string, bool) {
++	// Check if it's a Windows absolute path (e.g., C:\... or C:/...)
++	if len(arg) >= 3 && arg[1] == ':' && (arg[2] == '\\' || arg[2] == '/') {
++		// This is a Windows absolute path, not an instance:path format
++		return "", arg, false
++	}
++	
++	// Split by colon to check for instance:path format
++	parts := strings.SplitN(arg, ":", 2)
++	
++	switch len(parts) {
++	case 1:
++		// No colon, it's a local path
++		return "", arg, false
++	case 2:
++		// Has colon, it's instance:path format
++		return parts[0], parts[1], true
++	default:
++		// Should not happen with SplitN(..., 2)
++		return "", arg, false
++	}
++}
+diff --git a/cmd/limactl/shell.go b/cmd/limactl/shell.go
+index 3dee0bac..a918932a 100644
+--- a/cmd/limactl/shell.go
++++ b/cmd/limactl/shell.go
+@@ -8,6 +8,7 @@ import (
+ 	"fmt"
+ 	"os"
+ 	"os/exec"
++	"runtime"
+ 	"strconv"
+ 	"strings"
+ 
+@@ -91,18 +92,25 @@ func shellAction(cmd *cobra.Command, args []string) error {
+ 		changeDirCmd = fmt.Sprintf("cd %s || exit 1", shellescape.Quote(workDir))
+ 		// FIXME: check whether y.Mounts contains the home, not just len > 0
+ 	} else if len(inst.Config.Mounts) > 0 {
+-		hostCurrentDir, err := os.Getwd()
+-		if err == nil {
+-			changeDirCmd = fmt.Sprintf("cd %s", shellescape.Quote(hostCurrentDir))
++		// On Windows, paths need to be converted for use in the Linux VM
++		// Skip automatic directory switching on Windows as the paths won't translate directly
++		if runtime.GOOS == "windows" {
++			logrus.Debug("Skipping automatic directory switching on Windows host")
++			changeDirCmd = "true"
+ 		} else {
+-			changeDirCmd = "false"
+-			logrus.WithError(err).Warn("failed to get the current directory")
+-		}
+-		hostHomeDir, err := os.UserHomeDir()
+-		if err == nil {
+-			changeDirCmd = fmt.Sprintf("%s || cd %s", changeDirCmd, shellescape.Quote(hostHomeDir))
+-		} else {
+-			logrus.WithError(err).Warn("failed to get the home directory")
++			hostCurrentDir, err := os.Getwd()
++			if err == nil {
++				changeDirCmd = fmt.Sprintf("cd %s", shellescape.Quote(hostCurrentDir))
++			} else {
++				changeDirCmd = "false"
++				logrus.WithError(err).Warn("failed to get the current directory")
++			}
++			hostHomeDir, err := os.UserHomeDir()
++			if err == nil {
++				changeDirCmd = fmt.Sprintf("%s || cd %s", changeDirCmd, shellescape.Quote(hostHomeDir))
++			} else {
++				logrus.WithError(err).Warn("failed to get the home directory")
++			}
+ 		}
+ 	} else {
+ 		logrus.Debug("the host home does not seem mounted, so the guest shell will have a different cwd")
+diff --git a/pkg/sshutil/sshutil.go b/pkg/sshutil/sshutil.go
+index 891279d2..ef092b0a 100644
+--- a/pkg/sshutil/sshutil.go
++++ b/pkg/sshutil/sshutil.go
+@@ -98,8 +98,11 @@ func DefaultPubKeys(loadDotSSH bool) ([]PubKey, error) {
+ 		}
+ 		if err := lockutil.WithDirLock(configDir, func() error {
+ 			// no passphrase, no user@host comment
++			privateKeyPath := filepath.Join(configDir, filenames.UserPrivateKey)
++			// On Windows, convert path for SSH tools (e.g., Cygwin/MSYS2)
++			privateKeyPath = sshPathForWindows(privateKeyPath)
+ 			keygenCmd := exec.Command("ssh-keygen", "-t", "ed25519", "-q", "-N", "",
+-				"-C", "lima", "-f", filepath.Join(configDir, filenames.UserPrivateKey))
++				"-C", "lima", "-f", privateKeyPath)
+ 			logrus.Debugf("executing %v", keygenCmd.Args)
+ 			if out, err := keygenCmd.CombinedOutput(); err != nil {
+ 				return fmt.Errorf("failed to run %v: %q: %w", keygenCmd.Args, string(out), err)
+@@ -170,9 +173,10 @@ func CommonOpts(sshPath string, useDotSSH bool) ([]string, error) {
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	// Convert path for SSH tools (e.g., Cygwin/MSYS2 on Windows)
++	privateKeyPath = sshPathForWindows(privateKeyPath)
+ 	var opts []string
+ 	if runtime.GOOS == "windows" {
+-		privateKeyPath = ioutilx.CanonicalWindowsPath(privateKeyPath)
+ 		opts = []string{fmt.Sprintf(`IdentityFile='%s'`, privateKeyPath)}
+ 	} else {
+ 		opts = []string{fmt.Sprintf(`IdentityFile="%s"`, privateKeyPath)}
+@@ -207,6 +211,8 @@ func CommonOpts(sshPath string, useDotSSH bool) ([]string, error) {
+ 				// Fail on permission-related and other path errors
+ 				return nil, err
+ 			}
++			// Convert path for SSH tools (e.g., Cygwin/MSYS2 on Windows)
++			privateKeyPath = sshPathForWindows(privateKeyPath)
+ 			if runtime.GOOS == "windows" {
+ 				opts = append(opts, fmt.Sprintf(`IdentityFile='%s'`, privateKeyPath))
+ 			} else {
+@@ -266,9 +272,10 @@ func SSHOpts(sshPath, instDir, username string, useDotSSH, forwardAgent, forward
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	// Convert path for SSH tools (e.g., Cygwin/MSYS2 on Windows)
++	controlSock = sshPathForWindows(controlSock)
+ 	controlPath := fmt.Sprintf(`ControlPath="%s"`, controlSock)
+ 	if runtime.GOOS == "windows" {
+-		controlSock = ioutilx.CanonicalWindowsPath(controlSock)
+ 		controlPath = fmt.Sprintf(`ControlPath='%s'`, controlSock)
+ 	}
+ 	opts = append(opts,
+@@ -407,3 +414,13 @@ func detectAESAcceleration() bool {
+ 	}
+ 	return cpu.ARM.HasAES || cpu.ARM64.HasAES || cpu.S390X.HasAES || cpu.X86.HasAES
+ }
++
++// sshPathForWindows converts a Windows path to the appropriate format for the SSH tool.
++// On Windows, it uses CanonicalWindowsPath to convert to a format suitable for Cygwin/MSYS2 SSH.
++// On other platforms, it returns the path unchanged.
++func sshPathForWindows(path string) string {
++	if runtime.GOOS == "windows" {
++		return ioutilx.CanonicalWindowsPath(path)
++	}
++	return path
++}

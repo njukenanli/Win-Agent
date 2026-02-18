@@ -1,0 +1,15 @@
+diff --git a/rustls/Cargo.toml b/rustls/Cargo.toml
+index c4e2ab78..53f66640 100644
+--- a/rustls/Cargo.toml
++++ b/rustls/Cargo.toml
+@@ -102,6 +102,10 @@ path = "tests/runners/server_cert_verifier.rs"
+ name = "unbuffered"
+ path = "tests/runners/unbuffered.rs"
+ 
++[[test]]
++name = "wsl2_stall_repro"
++path = "tests/wsl2_stall_repro.rs"
++
+ [package.metadata.docs.rs]
+ # all non-default features except fips (cannot build on docs.rs environment)
+ features = ["aws-lc-rs", "brotli", "custom-provider", "hashbrown", "log", "ring", "std", "zlib"]

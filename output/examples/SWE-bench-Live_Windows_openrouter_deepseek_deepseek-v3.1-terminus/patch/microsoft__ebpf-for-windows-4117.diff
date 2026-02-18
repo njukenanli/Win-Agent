@@ -1,0 +1,46 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/tests/stress/km/stress_tests_km.cpp b/tests/stress/km/stress_tests_
+_km.cpp
+index 53a9e00e..f34114ec 100644
+--- a/tests/stress/km/stress_tests_km.cpp
++++ b/tests/stress/km/stress_tests_km.cpp
+@@ -394,7 +394,7 @@ _do_creator_work(thread_context& context, std::time_t endtim
+me_seconds)
+
+                 // We're racing with 'attach' _AND_ 'destroy', so make sure the
+e object was not already destroyed
+                 // by the time we get here.
+-                if (entry.available) {
++                if (entry.available || entry.object.get() == nullptr) {        
+                     continue;
+                 }
+
+@@ -474,7 +474,7 @@ _do_attacher_work(thread_context& context, std::time_t endti
+ime_seconds)
+             // Take the lock and make sure entry is _still_ in use (some other 
+ 'destroyer' may have closed this
+             // object and marked this entry as 'available').
+             std::lock_guard lock(*entry.lock.get());
+-            if (entry.available) {
++            if (entry.available || entry.object.get() == nullptr) {
+                 continue;
+             }
+
+@@ -566,8 +566,11 @@ _do_destroyer_work(thread_context& context, std::time_t end
+dtime_seconds)
+             }
+
+             // Close the object.
+-            bpf_object__close(entry.object.get());
+-            entry.object.release();
++            // Check if the object is valid before closing to avoid potential r
+race conditions
++            if (entry.object.get() != nullptr) {
++                bpf_object__close(entry.object.get());
++                entry.object.release();
++            }
+             entry.available = true;
+             entry.loaded = false;
+
+PS>
+PS>prompt

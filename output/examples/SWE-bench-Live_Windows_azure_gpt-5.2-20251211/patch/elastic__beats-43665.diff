@@ -1,0 +1,71 @@
+
+warning: CRLF will be replaced by LF in metricbeat/module/windows/service/servic
+ce_status.go.
+The file will have its original line endings in your working directory
+diff --git a/metricbeat/module/windows/service/service_status.go b/metricbeat/mo
+odule/windows/service/service_status.go
+index 571d324cb5..0d25b051c5 100644
+--- a/metricbeat/module/windows/service/service_status.go
++++ b/metricbeat/module/windows/service/service_status.go
+@@ -42,6 +42,12 @@ import (
+ // Windows API calls
+ //sys _OpenSCManager(machineName *uint16, databaseName *uint16, desiredAcces Se
+erviceSCMAccessRight) (handle ServiceDatabaseHandle, err error) = advapi32.OpenSC
+CManagerW
+ //sys _EnumServicesStatusEx(handle ServiceDatabaseHandle, infoLevel ServiceInfo
+oLevel, serviceType ServiceType, serviceState ServiceEnumState, services *byte, b
+bufSize uint32, bytesNeeded *uint32, servicesReturned *uint32, resumeHandle *uint
+tptr, groupName *uintptr) (err error) [failretval==0] = advapi32.EnumServicesStat
+tusExW
++
++// indirections to allow unit testing without calling into Windows APIs.       
++var (
++       enumServicesStatusEx    = _EnumServicesStatusEx
++       getServiceInformationFn = getServiceInformation
++)
+ //sys _OpenService(handle ServiceDatabaseHandle, serviceName *uint16, desiredAc
+ccess ServiceAccessRight) (serviceHandle ServiceHandle, err error) = advapi32.Ope
+enServiceW
+ //sys _QueryServiceConfig(serviceHandle ServiceHandle, serviceConfig *byte, buf
+fSize uint32, bytesNeeded *uint32) (err error) [failretval==0] = advapi32.QuerySe
+erviceConfigW
+ //sys _QueryServiceConfig2(serviceHandle ServiceHandle, infoLevel ServiceConfig
+gInformation, configBuffer *byte, bufSize uint32, bytesNeeded *uint32) (err error
+r) [failretval==0] = advapi32.QueryServiceConfig2W
+@@ -142,7 +148,7 @@ func GetServiceStates(handle Handle, state ServiceEnumState,
+, protectedServices m
+                        buf = &servicesBuffer[0]
+                }
+
+-               if err := _EnumServicesStatusEx(handle, ScEnumProcessInfo, Servi
+iceWin32, state, buf, uint32(len(servicesBuffer)), &bytesNeeded, &servicesReturne
+ed, nil, nil); err != nil {
++               if err := enumServicesStatusEx(handle, ScEnumProcessInfo, Servic
+ceWin32, state, buf, uint32(len(servicesBuffer)), &bytesNeeded, &servicesReturned
+d, nil, nil); err != nil {
+                        if ServiceErrno(err.(syscall.Errno)) == SERVICE_ERROR_MO
+ORE_DATA {
+                                // Increase buffer size and retry.
+                                servicesBuffer = make([]byte, len(servicesBuffer
+r)+int(bytesNeeded))
+@@ -166,9 +172,11 @@ func GetServiceStates(handle Handle, state ServiceEnumState
+e, protectedServices m
+        for i := 0; i < int(servicesReturned); i++ {
+                serviceTemp := (*EnumServiceStatusProcess)(unsafe.Pointer(&servi
+icesBuffer[i*sizeStatusProcess]))
+
+-               service, err := getServiceInformation(serviceTemp, servicesBuffe
+er, handle, protectedServices)
++               service, err := getServiceInformationFn(serviceTemp, servicesBuf
+ffer, handle, protectedServices)
+                if err != nil {
+-                       return nil, err
++                       // Do not abort the whole metricset if one service is in
+n a bad state.
++                       logp.Warn("Error getting windows service information (sk
+kipping service): %v", err)
++                       continue
+                }
+
+                services = append(services, service)
+

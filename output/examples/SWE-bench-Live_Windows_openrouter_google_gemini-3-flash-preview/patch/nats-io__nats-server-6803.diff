@@ -1,0 +1,25 @@
+diff --git a/server/certstore/certstore_windows.go b/server/certstore/certstore_windows.go
+index d47adb6ee..562894f11 100644
+--- a/server/certstore/certstore_windows.go
++++ b/server/certstore/certstore_windows.go
+@@ -593,16 +593,16 @@ func winSignECDSA(kh uintptr, digest []byte) ([]byte, error) {
+ 		return nil, ErrStoreECDSASigningError
+ 	}
+ 
+-	return winPackECDSASigValue(bytes.NewReader(buf[:size]), len(digest))
++	return winPackECDSASigValue(bytes.NewReader(buf[:size]), int(size))
+ }
+ 
+-func winPackECDSASigValue(r io.Reader, digestLength int) ([]byte, error) {
+-	sigR := make([]byte, digestLength)
++func winPackECDSASigValue(r io.Reader, signatureLength int) ([]byte, error) {
++	sigR := make([]byte, signatureLength/2)
+ 	if _, err := io.ReadFull(r, sigR); err != nil {
+ 		return nil, ErrStoreECDSASigningError
+ 	}
+ 
+-	sigS := make([]byte, digestLength)
++	sigS := make([]byte, signatureLength/2)
+ 	if _, err := io.ReadFull(r, sigS); err != nil {
+ 		return nil, ErrStoreECDSASigningError
+ 	}

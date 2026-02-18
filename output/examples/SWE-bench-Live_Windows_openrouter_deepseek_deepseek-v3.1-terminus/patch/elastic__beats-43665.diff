@@ -1,0 +1,27 @@
+git --no-pager diff HEAD --diff-filter=M --text
+warning: CRLF will be replaced by LF in metricbeat/module/windows/service/servic
+ce_status.go.
+The file will have its original line endings in your working directory
+diff --git a/metricbeat/module/windows/service/service_status.go b/metricbeat/mo
+odule/windows/service/service_status.go
+index 571d324cb5..2507c1a26d 100644
+--- a/metricbeat/module/windows/service/service_status.go
++++ b/metricbeat/module/windows/service/service_status.go
+@@ -168,7 +168,10 @@ func GetServiceStates(handle Handle, state ServiceEnumState
+e, protectedServices m
+
+                service, err := getServiceInformation(serviceTemp, servicesBuffe
+er, handle, protectedServices)
+                if err != nil {
+-                       return nil, err
++                       // Log the error but continue processing other services 
++                       // This prevents a single problematic service from stopp
+ping all monitoring
++                       logp.Warn("Failed to get service information for service
+e at index %d: %v", i, err)
++                       continue
+                }
+
+                services = append(services, service)
+PS>
+PS>prompt

@@ -1,0 +1,86 @@
+git --no-pager diff HEAD --diff-filter=M --text
+warning: CRLF will be replaced by LF in src/internal/packager2/actions/actions.g
+go.
+The file will have its original line endings in your working directory
+warning: CRLF will be replaced by LF in src/pkg/packager/actions/actions.go.    
+The file will have its original line endings in your working directory
+diff --git a/src/internal/packager2/actions/actions.go b/src/internal/packager2/
+/actions/actions.go
+index abe7d915..2869a37e 100644
+--- a/src/internal/packager2/actions/actions.go
++++ b/src/internal/packager2/actions/actions.go
+@@ -226,11 +226,20 @@ func actionCmdMutation(ctx context.Context, cmd string, sh
+hellPref v1alpha1.Shell
+                cmd = regexp.MustCompile(`^touch `).ReplaceAllString(cmd, `New-I
+Item `)
+
+                // Convert any ${ZARF_VAR_*} or $ZARF_VAR_* to ${env:ZARF_VAR_*}
+} or $env:ZARF_VAR_* respectively (also TF_VAR_*).
++               // Also convert ${ZARF_CONST_*} and $ZARF_CONST_* to ${env:ZARF_
+_CONST_*} or $env:ZARF_CONST_* respectively.
+                // https://regex101.com/r/xk1rkw/1
+-               envVarRegex := regexp.MustCompile(`(?P<envIndicator>\${?(?P<varN
+Name>(ZARF|TF)_VAR_([a-zA-Z0-9_-])+)}?)`)
+-               get, err := helpers.MatchRegex(envVarRegex, cmd)
+-               if err == nil {
+-                       newCmd := strings.ReplaceAll(cmd, get("envIndicator"), f
+fmt.Sprintf("$Env:%s", get("varName")))
++               envVarRegex := regexp.MustCompile(`(?P<envIndicator>\${?(?P<varN
+Name>(ZARF|TF)_(VAR|CONST)_([a-zA-Z0-9_-])+)}?)`)
++               matches := envVarRegex.FindAllStringSubmatch(cmd, -1)
++               if len(matches) > 0 {
++                       newCmd := cmd
++                       // Replace all matches
++                       for _, match := range matches {
++                               if len(match) >= 3 {
++                                       envIndicator := match[1]
++                                       varName := match[2]
++                                       newCmd = strings.ReplaceAll(newCmd, envI
+Indicator, fmt.Sprintf("$Env:%s", varName))
++                               }
++                       }
+                        logger.From(ctx).Debug("converted command", "cmd", cmd, 
+ "newCmd", newCmd)
+                        cmd = newCmd
+                }
+diff --git a/src/pkg/packager/actions/actions.go b/src/pkg/packager/actions/acti
+ions.go
+index cffcb8f7..7bcedf41 100644
+--- a/src/pkg/packager/actions/actions.go
++++ b/src/pkg/packager/actions/actions.go
+@@ -226,11 +226,20 @@ func actionCmdMutation(ctx context.Context, cmd string, sh
+hellPref v1alpha1.Shell
+                cmd = regexp.MustCompile(`^touch `).ReplaceAllString(cmd, `New-I
+Item `)
+
+                // Convert any ${ZARF_VAR_*} or $ZARF_VAR_* to ${env:ZARF_VAR_*}
+} or $env:ZARF_VAR_* respectively (also TF_VAR_*).
++               // Also convert ${ZARF_CONST_*} and $ZARF_CONST_* to ${env:ZARF_
+_CONST_*} or $env:ZARF_CONST_* respectively.
+                // https://regex101.com/r/xk1rkw/1
+-               envVarRegex := regexp.MustCompile(`(?P<envIndicator>\${?(?P<varN
+Name>(ZARF|TF)_VAR_([a-zA-Z0-9_-])+)}?)`)
+-               get, err := helpers.MatchRegex(envVarRegex, cmd)
+-               if err == nil {
+-                       newCmd := strings.ReplaceAll(cmd, get("envIndicator"), f
+fmt.Sprintf("$Env:%s", get("varName")))
++               envVarRegex := regexp.MustCompile(`(?P<envIndicator>\${?(?P<varN
+Name>(ZARF|TF)_(VAR|CONST)_([a-zA-Z0-9_-])+)}?)`)
++               matches := envVarRegex.FindAllStringSubmatch(cmd, -1)
++               if len(matches) > 0 {
++                       newCmd := cmd
++                       // Replace all matches
++                       for _, match := range matches {
++                               if len(match) >= 3 {
++                                       envIndicator := match[1]
++                                       varName := match[2]
++                                       newCmd = strings.ReplaceAll(newCmd, envI
+Indicator, fmt.Sprintf("$Env:%s", varName))
++                               }
++                       }
+                        logger.From(ctx).Debug("converted command", "cmd", cmd, 
+ "newCmd", newCmd)
+                        cmd = newCmd
+                }
+PS>
+PS>prompt

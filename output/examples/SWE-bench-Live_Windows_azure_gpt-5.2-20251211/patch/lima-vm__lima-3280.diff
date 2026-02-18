@@ -1,0 +1,20 @@
+
+diff --git a/pkg/osutil/user.go b/pkg/osutil/user.go
+index d1883c59..a38c9253 100644
+--- a/pkg/osutil/user.go
++++ b/pkg/osutil/user.go
+@@ -149,7 +149,10 @@ func LimaUser(limaVersion string, warn bool) *user.User {  
+                                drive := filepath.VolumeName(limaUser.HomeDir)  
+                                home = filepath.ToSlash(limaUser.HomeDir)       
+                                // replace C: with /c
+-                               prefix := strings.ToLower(fmt.Sprintf("/%c", dri
+ive[0]))
++                               prefix := "/"
++                               if drive != "" {
++                                       prefix = strings.ToLower(fmt.Sprintf("/%
+%c", drive[0]))
++                               }
+                                home = strings.Replace(home, drive, prefix, 1)  
+                        }
+                        if !regexPath.MatchString(limaUser.HomeDir) {
+

@@ -1,0 +1,16 @@
+git --no-pager diff HEAD --diff-filter=M --text
+diff --git a/pkg/sshutil/sshutil.go b/pkg/sshutil/sshutil.go
+index 563bc5ed..7fdf7c60 100644
+--- a/pkg/sshutil/sshutil.go
++++ b/pkg/sshutil/sshutil.go
+@@ -221,6 +221,7 @@ func CommonOpts(sshPath string, useDotSSH bool) ([]string, e
+error) {
+                "Compression=no",
+                "BatchMode=yes",
+                "IdentitiesOnly=yes",
++               "ConnectTimeout=5",
+        )
+
+        sshInfo.Do(func() {
+PS>
+PS>prompt

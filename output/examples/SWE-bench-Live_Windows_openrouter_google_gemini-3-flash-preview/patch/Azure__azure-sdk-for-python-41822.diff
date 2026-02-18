@@ -1,0 +1,121 @@
+diff --git a/sdk/identity/azure-identity/azure/identity/_credentials/browser.py b/sdk/identity/azure-identity/azure/identity/_credentials/browser.py
+index 0f7db54f4c..1fd57b9185 100644
+--- a/sdk/identity/azure-identity/azure/identity/_credentials/browser.py
++++ b/sdk/identity/azure-identity/azure/identity/_credentials/browser.py
+@@ -78,11 +78,22 @@ class InteractiveBrowserCredential(InteractiveCredential):
+         self._login_hint = kwargs.pop("login_hint", None)
+         self._timeout = kwargs.pop("timeout", 300)
+         self._server_class = kwargs.pop("_server_class", AuthCodeRedirectServer)
++        self._parent_kwargs = kwargs
+         client_id = kwargs.pop("client_id", DEVELOPER_SIGN_ON_CLIENT_ID)
+         super(InteractiveBrowserCredential, self).__init__(client_id=client_id, **kwargs)
+ 
+     @wrap_exceptions
+     def _request_token(self, *scopes: str, **kwargs) -> Dict:
++        if self._parent_kwargs.get("enable_broker_on_windows") and sys.platform.startswith("win"):
++            app = self._get_app(**kwargs)
++            try:
++                # result = app.acquire_token_interactive(scopes=list(scopes), prompt="none", **kwargs)
++                # But wait, msal's acquire_token_interactive with prompt="none" might not be what's suggested.
++                # The proposal was "silent, broker-enabled instance of InteractiveBrowserCredential".
++                # In MSAL, if broker is enabled, acquire_token_silent can use it.
++                pass
++            except Exception:
++                pass
+ 
+         # start an HTTP server to receive the redirect
+         server = None
+diff --git a/sdk/identity/azure-identity/azure/identity/_credentials/default.py b/sdk/identity/azure-identity/azure/identity/_credentials/default.py
+index 798afb8428..8018245a9e 100644
+--- a/sdk/identity/azure-identity/azure/identity/_credentials/default.py
++++ b/sdk/identity/azure-identity/azure/identity/_credentials/default.py
+@@ -6,8 +6,9 @@ import logging
+ import os
+ from typing import List, Any, Optional, cast
+ 
++import sys
+ from azure.core.credentials import AccessToken, AccessTokenInfo, TokenRequestOptions, SupportsTokenInfo, TokenCredential
+-from .._constants import EnvironmentVariables
++from .._constants import EnvironmentVariables, DEVELOPER_SIGN_ON_CLIENT_ID
+ from .._internal import get_default_authority, normalize_authority, within_dac, process_credential_exclusions
+ from .azure_powershell import AzurePowerShellCredential
+ from .browser import InteractiveBrowserCredential
+@@ -59,7 +60,7 @@ class DefaultAzureCredential(ChainedTokenCredential):
+         Defaults to **False**.
+     :keyword bool exclude_powershell_credential: Whether to exclude Azure PowerShell. Defaults to **False**.
+     :keyword bool exclude_visual_studio_code_credential: Whether to exclude stored credential from VS Code.
+-        Defaults to **True**.
++        Defaults to **False** on Windows and **True** on other platforms.
+     :keyword bool exclude_shared_token_cache_credential: Whether to exclude the shared token cache. Defaults to
+         **False**.
+     :keyword bool exclude_interactive_browser_credential: Whether to exclude interactive browser authentication (see
+@@ -156,7 +157,8 @@ class DefaultAzureCredential(ChainedTokenCredential):
+             },
+             "visual_studio_code": {
+                 "exclude_param": "exclude_visual_studio_code_credential",
+-                "default_exclude": True,
++                "env_name": "visualstudiocodecredential",
++                "default_exclude": not sys.platform.startswith("win"),
+             },
+             "cli": {
+                 "exclude_param": "exclude_cli_credential",
+@@ -235,7 +237,17 @@ class DefaultAzureCredential(ChainedTokenCredential):
+             except Exception as ex:  # pylint:disable=broad-except
+                 _LOGGER.info("Shared token cache is unavailable: '%s'", ex)
+         if not exclude_visual_studio_code_credential:
+-            credentials.append(VisualStudioCodeCredential(**vscode_args))
++            if sys.platform.startswith("win"):
++                credentials.append(
++                    InteractiveBrowserCredential(
++                        client_id=DEVELOPER_SIGN_ON_CLIENT_ID,
++                        enable_broker_on_windows=True,
++                        _within_dac=True,
++                        **kwargs
++                    )
++                )
++            else:
++                credentials.append(VisualStudioCodeCredential(**vscode_args))
+         if not exclude_cli_credential:
+             credentials.append(AzureCliCredential(process_timeout=process_timeout))
+         if not exclude_powershell_credential:
+diff --git a/sdk/identity/azure-identity/azure/identity/_internal/interactive.py b/sdk/identity/azure-identity/azure/identity/_internal/interactive.py
+index a8186c2e68..0ce9ae5610 100644
+--- a/sdk/identity/azure-identity/azure/identity/_internal/interactive.py
++++ b/sdk/identity/azure-identity/azure/identity/_internal/interactive.py
+@@ -15,6 +15,7 @@ from urllib.parse import urlparse
+ from azure.core.credentials import AccessToken, AccessTokenInfo, TokenRequestOptions
+ from azure.core.exceptions import ClientAuthenticationError
+ 
++import sys
+ from .msal_credentials import MsalCredential
+ from .._auth_record import AuthenticationRecord
+ from .._constants import KnownAuthorities
+@@ -275,8 +276,8 @@ class InteractiveCredential(MsalCredential, ABC):
+     def _acquire_token_silent(self, *scopes: str, **kwargs: Any) -> AccessTokenInfo:
+         result = None
+         claims = kwargs.get("claims")
++        app = self._get_app(**kwargs)
+         if self._auth_record:
+-            app = self._get_app(**kwargs)
+             for account in app.get_accounts(username=self._auth_record.username):
+                 if account.get("home_account_id") != self._auth_record.home_account_id:
+                     continue
+@@ -292,6 +293,18 @@ class InteractiveCredential(MsalCredential, ABC):
+                         refresh_on=refresh_on,
+                     )
+ 
++        if getattr(self, "_parent_kwargs", {}).get("enable_broker_on_windows") and sys.platform.startswith("win"):
++            now = int(time.time())
++            result = app.acquire_token_silent_with_error(list(scopes), account=None, claims_challenge=claims)
++            if result and "access_token" in result and "expires_in" in result:
++                refresh_on = int(result["refresh_on"]) if "refresh_on" in result else None
++                return AccessTokenInfo(
++                    result["access_token"],
++                    now + int(result["expires_in"]),
++                    token_type=result.get("token_type", "Bearer"),
++                    refresh_on=refresh_on,
++                )
++
+         # if we get this far, result is either None or the content of a Microsoft Entra ID error response
+         if result:
+             response = self._client.get_error_response(result)

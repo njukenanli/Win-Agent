@@ -1,0 +1,14 @@
+diff --git a/cmd/crc/cmd/console.go b/cmd/crc/cmd/console.go
+index bdd5c6a38..b315d0449 100644
+--- a/cmd/crc/cmd/console.go
++++ b/cmd/crc/cmd/console.go
+@@ -64,6 +64,9 @@ type consoleResult struct {
+ }
+ 
+ func (s *consoleResult) prettyPrintTo(writer io.Writer) error {
++	if s.ClusterConfig != nil && s.ClusterConfig.ClusterType == preset.Microshift {
++		return errors.New("the 'crc console' command is not supported for the MicroShift preset")
++	}
+ 	if s.Error != nil {
+ 		return s.Error
+ 	}

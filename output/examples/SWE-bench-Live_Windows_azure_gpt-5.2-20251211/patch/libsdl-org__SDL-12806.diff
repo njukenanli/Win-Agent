@@ -1,0 +1,39 @@
+
+diff --git a/src/core/windows/SDL_gameinput.h b/src/core/windows/SDL_gameinput.h
+index 0022c0bdd..eb7615f3a 100644
+--- a/src/core/windows/SDL_gameinput.h
++++ b/src/core/windows/SDL_gameinput.h
+@@ -25,9 +25,31 @@
+
+ #ifdef HAVE_GAMEINPUT_H
+
++/*
++ * The official GameInput v1 header from the NuGet package is a C++ header.    
++ * SDL's Windows backend is written in C, so we must ensure the header is parse
+ed
++ * as C++. MSVC uses the compilation unit language (/TC) and does not honor    
++ * extern "C" for this; instead we temporarily switch to C++ mode for the      
++ * include.
++ */
++#if defined(_MSC_VER) && !defined(__cplusplus)
++#pragma warning(push)
++/* force the following include to be treated as C++ */
++#pragma push_macro("__cplusplus")
++#undef __cplusplus
++#define __cplusplus 201703L
++#define _SDL_RESTORE_CPLUSPLUS
++#endif
++
+ #define COBJMACROS
+ #include <gameinput.h>
+
++#if defined(_SDL_RESTORE_CPLUSPLUS)
++#pragma pop_macro("__cplusplus")
++#undef _SDL_RESTORE_CPLUSPLUS
++#pragma warning(pop)
++#endif
++
+ extern bool SDL_InitGameInput(IGameInput **ppGameInput);
+ extern void SDL_QuitGameInput(void);
+
+

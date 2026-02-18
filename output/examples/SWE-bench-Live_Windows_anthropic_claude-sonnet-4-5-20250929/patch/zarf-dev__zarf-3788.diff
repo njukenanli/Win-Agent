@@ -1,0 +1,16 @@
+diff --git a/src/pkg/archive/archive.go b/src/pkg/archive/archive.go
+index 6aa0b1a1..f8f927e3 100644
+--- a/src/pkg/archive/archive.go
++++ b/src/pkg/archive/archive.go
+@@ -123,8 +123,9 @@ func unarchive(ctx context.Context, src, dst string) error {
+ 
+ 		case f.LinkTarget != "":
+ 			// symlink
+-			linkDest := filepath.Join(dst, f.LinkTarget)
+-			return os.Symlink(linkDest, target)
++			// Use the LinkTarget as-is, don't join it with dst
++			// The LinkTarget can be either relative or absolute and should be preserved
++			return os.Symlink(f.LinkTarget, target)
+ 
+ 		default:
+ 			// regular file

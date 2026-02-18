@@ -1,0 +1,40 @@
+diff --git a/src/platform/backends/hyperv/hyperv_virtual_machine.cpp b/src/platform/backends/hyperv/hyperv_virtual_machine.cpp
+index f012d1dc8..19f88eb91 100644
+--- a/src/platform/backends/hyperv/hyperv_virtual_machine.cpp
++++ b/src/platform/backends/hyperv/hyperv_virtual_machine.cpp
+@@ -203,9 +203,32 @@ mp::HyperVVirtualMachine::HyperVVirtualMachine(const VirtualMachineDescription&
+         state = instance_state_for(power_shell.get(), name);
+     }
+ 
+-    power_shell->easy_run({"Set-VM", "-Name", name, "-AutomaticCheckpointsEnabled", "$false"},
+-                          "Could not disable automatic snapshots"); // TODO move to new VMs only in
+-                                                                    // a couple of releases
++    using namespace std::chrono_literals;
++    int retry_count = 0;
++    while (true)
++    {
++        try
++        {
++            power_shell->easy_run({"Set-VM", "-Name", name, "-AutomaticCheckpointsEnabled", "$false"},
++                                  "Could not disable automatic snapshots"); // TODO move to new VMs only in
++                                                                            // a couple of releases
++            break;
++        }
++        catch (const std::exception& e)
++        {
++            if (retry_count >= 5)
++            {
++                throw;
++            }
++            retry_count++;
++            mpl::log(mpl::Level::warning,
++                     name.toStdString(),
++                     fmt::format("Failed to disable automatic snapshots, retrying ({}/5): {}",
++                                 retry_count,
++                                 e.what()));
++            MP_UTILS.sleep_for(100ms * retry_count);
++        }
++    }
+     delete_automatic_snapshots(power_shell.get(),
+                                name); // TODO drop in a couple of releases (going in on v1.13)
+ }

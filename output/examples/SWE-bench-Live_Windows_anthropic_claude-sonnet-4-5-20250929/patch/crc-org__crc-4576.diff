@@ -1,0 +1,104 @@
+diff --git a/cmd/crc/cmd/console.go b/cmd/crc/cmd/console.go
+index bdd5c6a38..65f02dc08 100644
+--- a/cmd/crc/cmd/console.go
++++ b/cmd/crc/cmd/console.go
+@@ -10,6 +10,7 @@ import (
+ 	"github.com/crc-org/crc/v2/pkg/crc/daemonclient"
+ 	crcErrors "github.com/crc-org/crc/v2/pkg/crc/errors"
+ 	"github.com/crc-org/crc/v2/pkg/crc/machine/state"
++	"github.com/crc-org/crc/v2/pkg/crc/preset"
+ 	"github.com/pkg/browser"
+ 	"github.com/spf13/cobra"
+ )
+@@ -44,10 +45,22 @@ func showConsole(client *daemonclient.Client) (*client.ConsoleResult, error) {
+ 
+ func runConsole(writer io.Writer, client *daemonclient.Client, consolePrintURL, consolePrintCredentials bool, outputFormat string) error {
+ 	result, err := showConsole(client)
++	
++	// Check if the preset is Microshift - it doesn't have a web console
++	if err == nil && result != nil && result.ClusterConfig.ClusterType == preset.Microshift {
++		err = errors.New("Web console is not supported for MicroShift preset")
++	}
++	
++	clusterConfig := toConsoleClusterConfig(result)
++	// Don't include cluster config in output when there's an error
++	if err != nil {
++		clusterConfig = nil
++	}
++	
+ 	return render(&consoleResult{
+ 		Success:                 err == nil,
+ 		state:                   toState(result),
+-		ClusterConfig:           toConsoleClusterConfig(result),
++		ClusterConfig:           clusterConfig,
+ 		Error:                   crcErrors.ToSerializableError(err),
+ 		consolePrintURL:         consolePrintURL,
+ 		consolePrintCredentials: consolePrintCredentials,
+@@ -67,6 +80,7 @@ func (s *consoleResult) prettyPrintTo(writer io.Writer) error {
+ 	if s.Error != nil {
+ 		return s.Error
+ 	}
++	
+ 	if s.consolePrintURL {
+ 		if _, err := fmt.Fprintln(writer, s.ClusterConfig.WebConsoleURL); err != nil {
+ 			return err
+diff --git a/cmd/crc/cmd/console_test.go b/cmd/crc/cmd/console_test.go
+index 0910dfb80..e86324931 100644
+--- a/cmd/crc/cmd/console_test.go
++++ b/cmd/crc/cmd/console_test.go
+@@ -11,6 +11,8 @@ import (
+ 	"github.com/crc-org/crc/v2/pkg/crc/machine/fakemachine"
+ 	"github.com/crc-org/crc/v2/pkg/crc/machine/state"
+ 	"github.com/crc-org/crc/v2/pkg/crc/machine/types"
++	"github.com/crc-org/crc/v2/pkg/crc/network/httpproxy"
++	"github.com/crc-org/crc/v2/pkg/crc/preset"
+ 	mocks "github.com/crc-org/crc/v2/test/mocks/api"
+ 	"github.com/stretchr/testify/assert"
+ )
+@@ -106,3 +108,46 @@ func TestConsoleJSONError(t *testing.T) {
+ 	assert.NoError(t, runConsole(out, setUpFailingClientForConsole(t), false, false, jsonFormat))
+ 	assert.JSONEq(t, `{"error":"console failed", "success":false}`, out.String())
+ }
++
++// Test for Microshift preset - should return an error
++func setUpClientForMicroshiftConsole(t *testing.T) *daemonclient.Client {
++	client := mocks.NewClient(t)
++
++	client.On("WebconsoleURL").Return(
++		&apiTypes.ConsoleResult{
++			ClusterConfig: types.ClusterConfig{
++				ClusterType:   preset.Microshift,
++				ClusterCACert: "",
++				KubeConfig:    "",
++				KubeAdminPass: "",
++				ClusterAPI:    "",
++				WebConsoleURL: "",
++				ProxyConfig:   &httpproxy.ProxyConfig{},
++			},
++			State: state.Running,
++		}, nil)
++	return &daemonclient.Client{
++		APIClient: client,
++	}
++}
++
++func TestConsoleMicroshiftPlainError(t *testing.T) {
++	out := new(bytes.Buffer)
++	assert.EqualError(t, runConsole(out, setUpClientForMicroshiftConsole(t), false, false, ""), "Web console is not supported for MicroShift preset")
++}
++
++func TestConsoleMicroshiftWithURLError(t *testing.T) {
++	out := new(bytes.Buffer)
++	assert.EqualError(t, runConsole(out, setUpClientForMicroshiftConsole(t), true, false, ""), "Web console is not supported for MicroShift preset")
++}
++
++func TestConsoleMicroshiftWithCredentialsError(t *testing.T) {
++	out := new(bytes.Buffer)
++	assert.EqualError(t, runConsole(out, setUpClientForMicroshiftConsole(t), false, true, ""), "Web console is not supported for MicroShift preset")
++}
++
++func TestConsoleMicroshiftJSONError(t *testing.T) {
++	out := new(bytes.Buffer)
++	assert.NoError(t, runConsole(out, setUpClientForMicroshiftConsole(t), false, false, jsonFormat))
++	assert.JSONEq(t, `{"error":"Web console is not supported for MicroShift preset", "success":false}`, out.String())
++}

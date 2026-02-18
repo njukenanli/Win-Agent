@@ -1,0 +1,59 @@
+
+diff --git a/server/certstore/certstore_windows.go b/server/certstore/certstore_
+_windows.go
+index d47adb6ee..34becef80 100644
+--- a/server/certstore/certstore_windows.go
++++ b/server/certstore/certstore_windows.go
+@@ -561,7 +561,7 @@ func (k winKey) Sign(_ io.Reader, digest []byte, opts crypto
+o.SignerOpts) ([]byte
+
+ func winSignECDSA(kh uintptr, digest []byte) ([]byte, error) {
+        var size uint32
+-       // Obtain the size of the signature
++       // Obtain the size of the signature.
+        r, _, _ := winNCryptSignHash.Call(
+                kh,
+                0,
+@@ -575,7 +575,7 @@ func winSignECDSA(kh uintptr, digest []byte) ([]byte, error)
+) {
+                return nil, ErrStoreECDSASigningError
+        }
+
+-       // Obtain the signature data
++       // Obtain the signature data.
+        buf := make([]byte, size)
+        r, _, _ = winNCryptSignHash.Call(
+                kh,
+@@ -593,19 +593,20 @@ func winSignECDSA(kh uintptr, digest []byte) ([]byte, erro
+or) {
+                return nil, ErrStoreECDSASigningError
+        }
+
+-       return winPackECDSASigValue(bytes.NewReader(buf[:size]), len(digest))   
++       // For ECDSA, NCryptSignHash returns the raw concatenation of r||s where
++       // each component is the curve size in bytes (not the digest size).     
++       // For instance, P-384 returns 96 bytes (48+48) even if the digest is 32
+2 bytes.
++       return winPackECDSASigValue(buf[:size])
+ }
+
+-func winPackECDSASigValue(r io.Reader, digestLength int) ([]byte, error) {     
+-       sigR := make([]byte, digestLength)
+-       if _, err := io.ReadFull(r, sigR); err != nil {
+-               return nil, ErrStoreECDSASigningError
+-       }
+-
+-       sigS := make([]byte, digestLength)
+-       if _, err := io.ReadFull(r, sigS); err != nil {
++func winPackECDSASigValue(sig []byte) ([]byte, error) {
++       // sig is expected to be r||s.
++       if len(sig) == 0 || len(sig)%2 != 0 {
+                return nil, ErrStoreECDSASigningError
+        }
++       n := len(sig) / 2
++       sigR := sig[:n]
++       sigS := sig[n:]
+
+        var b cryptobyte.Builder
+        b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
+

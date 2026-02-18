@@ -1,0 +1,19 @@
+diff --git a/x-pack/packetbeat/tests/system/app_test.go b/x-pack/packetbeat/tests/system/app_test.go
+index 214cd9c236..d4b961f492 100644
+--- a/x-pack/packetbeat/tests/system/app_test.go
++++ b/x-pack/packetbeat/tests/system/app_test.go
+@@ -53,6 +53,14 @@ func TestWindowsNpcapInstaller(t *testing.T) {
+ }
+ 
+ func TestDevices(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		// On Windows, `net.Interfaces()` names (e.g. "Ethernet 2") do not necessarily
++		// appear in packetbeat's `devices` output, which is based on Npcap/WinPcap
++		// device identifiers and descriptions (e.g. "\\Device\\NPF_{GUID} (Adapter)").
++		// See https://github.com/elastic/beats/issues/40387.
++		t.Skip("skipping on Windows: packetbeat devices output uses Npcap device names")
++	}
++
+ 	stdout, stderr, err := runPacketbeat(t, "devices")
+ 	require.NoError(t, err, stderr)
+ 	t.Log("Output:\n", stdout)

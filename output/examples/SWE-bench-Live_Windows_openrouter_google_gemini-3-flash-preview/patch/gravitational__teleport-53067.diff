@@ -1,0 +1,101 @@
+diff --git a/lib/config/configuration.go b/lib/config/configuration.go
+index 6aeb06d2f3..14135837dd 100644
+--- a/lib/config/configuration.go
++++ b/lib/config/configuration.go
+@@ -2074,6 +2074,8 @@ func applyWindowsDesktopConfig(fc *FileConfig, cfg *servicecfg.Config) error {
+ 		Filters:         fc.WindowsDesktop.Discovery.Filters,
+ 		LabelAttributes: fc.WindowsDesktop.Discovery.LabelAttributes,
+ 	}
++	cfg.WindowsDesktop.DiscoveryRDPPort = fc.WindowsDesktop.DiscoveryRDPPort
++	cfg.WindowsDesktop.DiscoveryInterval = fc.WindowsDesktop.DiscoveryInterval
+ 
+ 	var err error
+ 	cfg.WindowsDesktop.PublicAddrs, err = utils.AddrsFromStrings(fc.WindowsDesktop.PublicAddr, defaults.WindowsDesktopListenPort)
+diff --git a/lib/config/fileconf.go b/lib/config/fileconf.go
+index 44126398a2..45d216a097 100644
+--- a/lib/config/fileconf.go
++++ b/lib/config/fileconf.go
+@@ -2491,6 +2491,10 @@ type WindowsDesktopService struct {
+ 	KDCAddress string `yaml:"kdc_address"`
+ 	// Discovery configures desktop discovery via LDAP.
+ 	Discovery LDAPDiscoveryConfig `yaml:"discovery,omitempty"`
++	// DiscoveryRDPPort is the RDP port to use for discovered desktops.
++	DiscoveryRDPPort int `yaml:"discovery_rdp_port,omitempty"`
++	// DiscoveryInterval is the interval at which to search for desktops.
++	DiscoveryInterval time.Duration `yaml:"discovery_interval,omitempty"`
+ 	// ADHosts is a list of static, AD-connected Windows hosts. This gives users
+ 	// a way to specify AD-connected hosts that won't be found by the filters
+ 	// specified in `discovery` (or if `discovery` is omitted).
+diff --git a/lib/service/servicecfg/windows.go b/lib/service/servicecfg/windows.go
+index 988dc16b3e..f16a20746e 100644
+--- a/lib/service/servicecfg/windows.go
++++ b/lib/service/servicecfg/windows.go
+@@ -22,6 +22,7 @@ import (
+ 	"crypto/x509"
+ 	"maps"
+ 	"regexp"
++	"time"
+ 
+ 	"github.com/gravitational/teleport/lib/limiter"
+ 	"github.com/gravitational/teleport/lib/services"
+@@ -57,6 +58,12 @@ type WindowsDesktopConfig struct {
+ 	// Discovery configures automatic desktop discovery via LDAP.
+ 	Discovery LDAPDiscoveryConfig
+ 
++	// DiscoveryRDPPort is the RDP port to use for discovered desktops.
++	DiscoveryRDPPort int
++
++	// DiscoveryInterval is the interval at which to search for desktops.
++	DiscoveryInterval time.Duration
++
+ 	// StaticHosts is an optional list of static Windows hosts to expose through this
+ 	// service.
+ 	StaticHosts []WindowsHost
+diff --git a/lib/srv/desktop/discovery.go b/lib/srv/desktop/discovery.go
+index ee50a8de2a..37dac75c43 100644
+--- a/lib/srv/desktop/discovery.go
++++ b/lib/srv/desktop/discovery.go
+@@ -121,9 +121,12 @@ func (s *WindowsService) startDesktopDiscovery() error {
+ 			s.cfg.Logger.ErrorContext(s.closeCtx, "desktop reconciliation failed", "error", err)
+ 		}
+ 
+-		// TODO(zmb3): consider making the discovery period configurable
+-		// (it's currently hard coded to 5 minutes in order to match DB access discovery behavior)
+-		t := s.cfg.Clock.NewTicker(5 * time.Minute)
++		// reconciler/discovery interval for Windows Desktops
++		interval := 5 * time.Minute
++		if s.cfg.DiscoveryInterval > 0 {
++			interval = s.cfg.DiscoveryInterval
++		}
++		t := s.cfg.Clock.NewTicker(interval)
+ 		defer t.Stop()
+ 		for {
+ 			select {
+@@ -335,7 +338,11 @@ func (s *WindowsService) ldapEntryToWindowsDesktop(
+ 	}
+ 
+ 	s.cfg.Logger.DebugContext(ctx, "resolved desktop host", "hostname", hostname, "addrs", addrs)
+-	addr, err := utils.ParseHostPortAddr(addrs[0], defaults.RDPListenPort)
++	port := defaults.RDPListenPort
++	if s.cfg.DiscoveryRDPPort > 0 {
++		port = s.cfg.DiscoveryRDPPort
++	}
++	addr, err := utils.ParseHostPortAddr(addrs[0], port)
+ 	if err != nil {
+ 		return nil, trace.Wrap(err)
+ 	}
+diff --git a/lib/srv/desktop/windows_server.go b/lib/srv/desktop/windows_server.go
+index 767c959510..9c7dba3583 100644
+--- a/lib/srv/desktop/windows_server.go
++++ b/lib/srv/desktop/windows_server.go
+@@ -212,6 +212,10 @@ type WindowsServiceConfig struct {
+ 	// DiscoveryLDAPAttributeLabels are optional LDAP attributes to convert
+ 	// into Teleport labels.
+ 	DiscoveryLDAPAttributeLabels []string
++	// DiscoveryRDPPort is the RDP port to use for discovered desktops.
++	DiscoveryRDPPort int
++	// DiscoveryInterval is the interval at which to search for desktops.
++	DiscoveryInterval time.Duration
+ 	// Hostname of the Windows desktop service
+ 	Hostname string
+ 	// ConnectedProxyGetter gets the proxies teleport is connected to.

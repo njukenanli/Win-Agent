@@ -1,0 +1,17 @@
+diff --git a/gemrb/core/System/VFS.cpp b/gemrb/core/System/VFS.cpp
+index b4e524af5..fbb294c9a 100644
+--- a/gemrb/core/System/VFS.cpp
++++ b/gemrb/core/System/VFS.cpp
+@@ -76,8 +76,10 @@ struct dirent {
+ 	{
+ 		auto cutOff = entryName.length();
+ 		buffer = std::move(entryName);
+-		buffer.resize(_MAX_PATH);
+-		buffer[cutOff] = 0;
++		if (buffer.length() < _MAX_PATH) {
++			buffer.resize(_MAX_PATH);
++		}
++		buffer[std::min(cutOff, (size_t) _MAX_PATH - 1)] = 0;
+ 		d_name = const_cast<char*>(buffer.data());
+ 
+ 		return *this;

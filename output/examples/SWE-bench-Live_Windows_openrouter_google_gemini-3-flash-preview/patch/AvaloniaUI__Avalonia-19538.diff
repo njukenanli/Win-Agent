@@ -1,0 +1,28 @@
+diff --git a/src/Avalonia.Base/Media/TextFormatting/TextLayout.cs b/src/Avalonia.Base/Media/TextFormatting/TextLayout.cs
+index 3a578fb72..bc5a89a67 100644
+--- a/src/Avalonia.Base/Media/TextFormatting/TextLayout.cs
++++ b/src/Avalonia.Base/Media/TextFormatting/TextLayout.cs
+@@ -668,7 +668,6 @@ private TextLine[] CreateTextLines()
+             finally
+             {
+                 objectPool.TextLines.Return(ref textLines);
+-                objectPool.VerifyAllReturned();
+             }
+         }
+ 
+diff --git a/src/Avalonia.Base/Media/Typeface.cs b/src/Avalonia.Base/Media/Typeface.cs
+index 3a221c3d2..6f619c54a 100644
+--- a/src/Avalonia.Base/Media/Typeface.cs
++++ b/src/Avalonia.Base/Media/Typeface.cs
+@@ -26,9 +26,9 @@ public Typeface(FontFamily fontFamily,
+                 throw new ArgumentException("Font weight must be > 0.");
+             }
+             
+-            if ((int)stretch < 1)
++            if ((int)stretch < 1 || (int)stretch > 9)
+             {
+-                throw new ArgumentException("Font stretch must be > 1.");
++                throw new ArgumentException("Font stretch must be between 1 and 9.");
+             }
+ 
+             FontFamily = fontFamily ?? FontFamily.Default;

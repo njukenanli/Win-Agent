@@ -1,0 +1,13 @@
+diff --git a/compiler-core/src/requirement.rs b/compiler-core/src/requirement.rs
+index 036ae08b6..03a3e2fe0 100644
+--- a/compiler-core/src/requirement.rs
++++ b/compiler-core/src/requirement.rs
+@@ -122,7 +122,7 @@ impl<'de> Visitor<'de> for RequirementVisitor {
+     where
+         E: de::Error,
+     {
+-        Ok(FromStr::from_str(value).expect("expected string"))
++        FromStr::from_str(value).map_err(de::Error::custom)
+     }
+ 
+     fn visit_map<M>(self, visitor: M) -> Result<Self::Value, M::Error>

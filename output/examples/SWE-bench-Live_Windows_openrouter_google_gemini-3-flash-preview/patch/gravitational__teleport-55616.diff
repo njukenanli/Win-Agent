@@ -1,0 +1,46 @@
+diff --git a/lib/srv/desktop/discovery.go b/lib/srv/desktop/discovery.go
+index 3ae2011128..0baa28cb13 100644
+--- a/lib/srv/desktop/discovery.go
++++ b/lib/srv/desktop/discovery.go
+@@ -399,7 +399,9 @@ func (s *WindowsService) startDynamicReconciler(ctx context.Context) (*services.
+ 			return services.MatchResourceLabels(s.cfg.ResourceMatchers, desktop.GetAllLabels())
+ 		},
+ 		GetCurrentResources: func() map[string]types.WindowsDesktop {
+-			return currentResources
++			s.mu.Lock()
++			defer s.mu.Unlock()
++			return s.getResources(ctx, currentResources)
+ 		},
+ 		GetNewResources: func() map[string]types.WindowsDesktop {
+ 			return newResources
+@@ -430,7 +432,9 @@ func (s *WindowsService) startDynamicReconciler(ctx context.Context) (*services.
+ 					s.cfg.Logger.WarnContext(ctx, "Reconciliation failed, will retry", "error", err)
+ 					continue
+ 				}
++				s.mu.Lock()
+ 				currentResources = newResources
++				s.mu.Unlock()
+ 			case <-watcher.Done():
+ 				return
+ 			case <-ctx.Done():
+@@ -458,3 +462,20 @@ func (s *WindowsService) toWindowsDesktop(dynamicDesktop types.DynamicWindowsDes
+ 		},
+ 	})
+ }
++
++func (s *WindowsService) getResources(ctx context.Context, reconciliationCache map[string]types.WindowsDesktop) map[string]types.WindowsDesktop {
++	desktops, err := s.cfg.AccessPoint.GetWindowsDesktops(ctx, types.WindowsDesktopFilter{
++		HostID: s.cfg.Heartbeat.HostUUID,
++	})
++	if err != nil {
++		s.cfg.Logger.WarnContext(ctx, "Failed to get current windows desktops, falling back to cache", "error", err)
++		return reconciliationCache
++	}
++	res := make(map[string]types.WindowsDesktop)
++	for _, d := range desktops {
++		if services.MatchResourceLabels(s.cfg.ResourceMatchers, d.GetAllLabels()) {
++			res[d.GetName()] = d
++		}
++	}
++	return res
++}

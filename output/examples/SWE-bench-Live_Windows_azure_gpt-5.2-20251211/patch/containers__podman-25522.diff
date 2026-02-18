@@ -1,0 +1,24 @@
+diff --git a/pkg/machine/wsl/wutil/wutil.go b/pkg/machine/wsl/wutil/wutil.go
+index bc07ffa2a9..73495d7f7d 100644
+--- a/pkg/machine/wsl/wutil/wutil.go
++++ b/pkg/machine/wsl/wutil/wutil.go
+@@ -98,13 +98,18 @@ func IsWSLInstalled() bool {
+ 		return false
+ 	}
+ 
++	// Older in-box WSL used to return success with a message when the kernel was missing.
++	// Newer store WSL (2.3.26+) may fail when required Windows features are disabled.
++	// In both cases, we want Podman to treat WSL as not installed/usable so it can
++	// guide the user through enabling/installing WSL.
+ 	kernelNotFound := matchOutputLine(out, "kernel file is not found")
++	featureNotInstalled := matchOutputLine(out, "required feature is not installed")
+ 
+ 	if err := cmd.Wait(); err != nil {
+ 		return false
+ 	}
+ 
+-	return !kernelNotFound
++	return !(kernelNotFound || featureNotInstalled)
+ }
+ 
+ func IsWSLStoreVersionInstalled() bool {

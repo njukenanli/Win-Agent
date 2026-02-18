@@ -1,0 +1,36 @@
+diff --git a/src/pkg/archive/archive.go b/src/pkg/archive/archive.go
+index 6aa0b1a1..fbfe6cd4 100644
+--- a/src/pkg/archive/archive.go
++++ b/src/pkg/archive/archive.go
+@@ -12,6 +12,7 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
++	"runtime"
+ 
+ 	"github.com/mholt/archiver/v3"
+ 	"github.com/mholt/archives"
+@@ -123,6 +124,23 @@ func unarchive(ctx context.Context, src, dst string) error {
+ 
+ 		case f.LinkTarget != "":
+ 			// symlink
++			// On Windows, symlink creation can require elevated privileges and has
++			// historically been buggy in 3rd-party archivers. To keep extraction
++			// reliable and portable, extract symlinks as small text files containing
++			// the link target.
++			if runtime.GOOS == "windows" {
++				if err := os.MkdirAll(filepath.Dir(target), rwxPerm); err != nil {
++					return err
++				}
++				out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
++				if err != nil {
++					return err
++				}
++				defer func() { err = errors.Join(err, out.Close()) }()
++				_, err = out.WriteString(f.LinkTarget)
++				return err
++			}
++
+ 			linkDest := filepath.Join(dst, f.LinkTarget)
+ 			return os.Symlink(linkDest, target)
+ 

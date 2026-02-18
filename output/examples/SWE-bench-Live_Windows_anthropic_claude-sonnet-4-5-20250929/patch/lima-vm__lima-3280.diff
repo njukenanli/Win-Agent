@@ -1,0 +1,103 @@
+diff --git a/.github/workflows/test.yml b/.github/workflows/test.yml
+index 0abd0377..306f75f3 100644
+--- a/.github/workflows/test.yml
++++ b/.github/workflows/test.yml
+@@ -160,22 +160,19 @@ jobs:
+       run: go test -v ./...
+     - name: Make
+       run: make
+-# FIXME: Windows CI began to fail on Oct 21, 2024.
+-# Something seems to have changed between win22/20241006.1 and win22/20241015.1.
+-# https://github.com/lima-vm/lima/issues/2775
+-#    - name: Smoke test
+-#      # Make sure the path is set properly and then run limactl
+-#      run: |
+-#        $env:Path = 'C:\Program Files\Git\usr\bin;' + $env:Path
+-#        Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value $env:Path
+-#        .\_output\bin\limactl.exe start template://experimental/wsl2
+-#      # TODO: run the full integration tests
+-#    - name: Debug
+-#      if: always()
+-#      run: type C:\Users\runneradmin\.lima\wsl2\ha.stdout.log
+-#    - name: Debug
+-#      if: always()
+-#      run: type C:\Users\runneradmin\.lima\wsl2\ha.stderr.log
++    - name: Smoke test
++      # Make sure the path is set properly and then run limactl
++      run: |
++        $env:Path = 'C:\Program Files\Git\usr\bin;' + $env:Path
++        Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value $env:Path
++        .\_output\bin\limactl.exe start template://experimental/wsl2
++      # TODO: run the full integration tests
++    - name: Debug
++      if: always()
++      run: type C:\Users\runneradmin\.lima\wsl2\ha.stdout.log
++    - name: Debug
++      if: always()
++      run: type C:\Users\runneradmin\.lima\wsl2\ha.stderr.log
+ 
+   qemu:
+     name: "Integration tests (QEMU, macOS host)"
+diff --git a/pkg/store/instance_windows.go b/pkg/store/instance_windows.go
+index d7457ec2..7060ccce 100644
+--- a/pkg/store/instance_windows.go
++++ b/pkg/store/instance_windows.go
+@@ -5,9 +5,11 @@ import (
+ 	"os/exec"
+ 	"regexp"
+ 	"strings"
++	"time"
+ 
+ 	"github.com/lima-vm/lima/pkg/executil"
+ 	"github.com/lima-vm/lima/pkg/limayaml"
++	"github.com/sirupsen/logrus"
+ )
+ 
+ func inspectStatus(instDir string, inst *Instance, y *limayaml.LimaYAML) {
+@@ -125,11 +127,40 @@ func GetSSHAddress(instName string) (string, error) {
+ // 168.1.1.1 [10.0.0.1]
+ func getWslSSHAddress(instName string) (string, error) {
+ 	distroName := "lima-" + instName
+-	cmd := exec.Command("wsl.exe", "-d", distroName, "bash", "-c", `hostname -I | cut -d ' ' -f1`)
+-	out, err := cmd.CombinedOutput()
+-	if err != nil {
+-		return "", fmt.Errorf("failed to get hostname for instance %q, err: %w (out=%q)", instName, err, string(out))
++	
++	// Retry getting the hostname as networking may not be immediately available
++	// after starting the WSL2 instance. This is particularly important on newer
++	// Windows runner images where there may be a delay in network initialization.
++	// See: https://github.com/lima-vm/lima/issues/2775
++	const maxRetries = 30
++	const retryDelay = 1 // second
++	
++	var lastErr error
++	for i := 0; i < maxRetries; i++ {
++		if i > 0 {
++			// Wait before retrying (not on first attempt)
++			time.Sleep(retryDelay * time.Second)
++		}
++		
++		cmd := exec.Command("wsl.exe", "-d", distroName, "bash", "-c", `hostname -I | cut -d ' ' -f1`)
++		out, err := cmd.CombinedOutput()
++		if err == nil {
++			addr := strings.TrimSpace(string(out))
++			if addr != "" {
++				if i > 0 {
++					logrus.Infof("Successfully obtained WSL2 SSH address after %d attempts: %s", i+1, addr)
++				}
++				return addr, nil
++			}
++			lastErr = fmt.Errorf("got empty address")
++		} else {
++			lastErr = fmt.Errorf("failed to get hostname for instance %q, err: %w (out=%q)", instName, err, string(out))
++		}
++		
++		if i < maxRetries-1 {
++			logrus.Debugf("Attempt %d/%d to get WSL2 SSH address failed, retrying...", i+1, maxRetries)
++		}
+ 	}
+-
+-	return strings.TrimSpace(string(out)), nil
++	
++	return "", fmt.Errorf("failed to get hostname after %d retries: %w", maxRetries, lastErr)
+ }

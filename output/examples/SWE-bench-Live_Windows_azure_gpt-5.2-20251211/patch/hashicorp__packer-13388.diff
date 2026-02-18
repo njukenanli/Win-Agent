@@ -1,0 +1,16 @@
+diff --git a/provisioner/powershell/provisioner.go b/provisioner/powershell/provisioner.go
+index 901707c22..dcc024ef4 100644
+--- a/provisioner/powershell/provisioner.go
++++ b/provisioner/powershell/provisioner.go
+@@ -535,10 +535,7 @@ func (p *Provisioner) createFlattenedEnvVars(elevated bool) (flattened string) {
+ 		keyValue := strings.SplitN(envVar, "=", 2)
+ 		// Escape chars special to PS in each env var value
+ 		escapedEnvVarValue := psEscape.Replace(keyValue[1])
+-		if escapedEnvVarValue != keyValue[1] {
+-			log.Printf("Env var %s converted to %s after escaping chars special to PS", keyValue[1],
+-				escapedEnvVarValue)
+-		}
++		// Do not log values here because they may include sensitive data.
+ 		envVars[keyValue[0]] = escapedEnvVarValue
+ 	}
+ 

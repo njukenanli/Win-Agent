@@ -1,0 +1,14 @@
+diff --git a/lib/srv/heartbeat.go b/lib/srv/heartbeat.go
+index 648fff0637..d4759bcc9d 100644
+--- a/lib/srv/heartbeat.go
++++ b/lib/srv/heartbeat.go
+@@ -558,6 +558,9 @@ func (h *Heartbeat) announce() (doneSomething bool, _ error) {
+ 			if !ok {
+ 				return false, trace.BadParameter("expected types.WindowsDesktop, got %#v", h.current)
+ 			}
++			// Windows desktop resources don't support keepalives.
++			// Treat KeepAlivePeriod as the maximum time we will wait before forcing
++			// a full announce (Upsert) so that out-of-band deletes/edits get healed.
+ 			err := h.Announcer.UpsertWindowsDesktop(h.cancelCtx, desktop)
+ 			if err != nil {
+ 				h.nextAnnounce = h.Clock.Now().UTC().Add(h.KeepAlivePeriod)

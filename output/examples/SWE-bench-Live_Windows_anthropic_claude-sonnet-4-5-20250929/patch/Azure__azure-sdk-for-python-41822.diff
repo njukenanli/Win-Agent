@@ -1,0 +1,105 @@
+diff --git a/sdk/identity/azure-identity/azure/identity/_credentials/default.py b/sdk/identity/azure-identity/azure/identity/_credentials/default.py
+index 798afb8428..2acc78360c 100644
+--- a/sdk/identity/azure-identity/azure/identity/_credentials/default.py
++++ b/sdk/identity/azure-identity/azure/identity/_credentials/default.py
+@@ -4,6 +4,7 @@
+ # ------------------------------------
+ import logging
+ import os
++import sys
+ from typing import List, Any, Optional, cast
+ 
+ from azure.core.credentials import AccessToken, AccessTokenInfo, TokenRequestOptions, SupportsTokenInfo, TokenCredential
+@@ -39,9 +40,11 @@ class DefaultAzureCredential(ChainedTokenCredential):
+     4. On Windows only: a user who has signed in with a Microsoft application, such as Visual Studio. If multiple
+        identities are in the cache, then the value of  the environment variable ``AZURE_USERNAME`` is used to select
+        which identity to use. See :class:`~azure.identity.SharedTokenCacheCredential` for more details.
+-    5. The identity currently logged in to the Azure CLI.
+-    6. The identity currently logged in to Azure PowerShell.
+-    7. The identity currently logged in to the Azure Developer CLI.
++    5. On Windows only: SSO with Visual Studio Code via WAM (Web Account Manager). When the azure-identity-broker
++       package is installed, a silent broker-enabled authentication is attempted for VS Code SSO support.
++    6. The identity currently logged in to the Azure CLI.
++    7. The identity currently logged in to Azure PowerShell.
++    8. The identity currently logged in to the Azure Developer CLI.
+ 
+     This default behavior is configurable with keyword arguments.
+ 
+@@ -58,8 +61,10 @@ class DefaultAzureCredential(ChainedTokenCredential):
+     :keyword bool exclude_managed_identity_credential: Whether to exclude managed identity from the credential.
+         Defaults to **False**.
+     :keyword bool exclude_powershell_credential: Whether to exclude Azure PowerShell. Defaults to **False**.
+-    :keyword bool exclude_visual_studio_code_credential: Whether to exclude stored credential from VS Code.
+-        Defaults to **True**.
++    :keyword bool exclude_visual_studio_code_credential: Whether to exclude VS Code SSO authentication. On Windows
++        with the azure-identity-broker package installed, uses a silent broker-enabled credential for SSO with VS Code
++        via WAM (Web Account Manager). On other platforms or when the broker package is not available, falls back to
++        the deprecated VisualStudioCodeCredential. Defaults to **True**.
+     :keyword bool exclude_shared_token_cache_credential: Whether to exclude the shared token cache. Defaults to
+         **False**.
+     :keyword bool exclude_interactive_browser_credential: Whether to exclude interactive browser authentication (see
+@@ -235,7 +240,27 @@ class DefaultAzureCredential(ChainedTokenCredential):
+             except Exception as ex:  # pylint:disable=broad-except
+                 _LOGGER.info("Shared token cache is unavailable: '%s'", ex)
+         if not exclude_visual_studio_code_credential:
+-            credentials.append(VisualStudioCodeCredential(**vscode_args))
++            # On Windows, use a silent broker-enabled InteractiveBrowserCredential for VSCode SSO
++            # This provides SSO with VS Code now that WAM is the default authentication mechanism
++            if sys.platform.startswith("win"):
++                try:
++                    from azure.identity.broker import InteractiveBrowserBrokerCredential
++                    # Create a silent, broker-enabled credential for VSCode SSO on Windows
++                    vscode_sso_cred = InteractiveBrowserBrokerCredential(
++                        use_default_broker_account=True,
++                        disable_automatic_authentication=True,
++                        **vscode_args
++                    )
++                    credentials.append(vscode_sso_cred)
++                except ImportError:
++                    # Fall back to the deprecated VisualStudioCodeCredential if broker is not available
++                    _LOGGER.debug(
++                        "Broker package not available, falling back to deprecated VisualStudioCodeCredential"
++                    )
++                    credentials.append(VisualStudioCodeCredential(**vscode_args))
++            else:
++                # On non-Windows platforms, use the original VisualStudioCodeCredential
++                credentials.append(VisualStudioCodeCredential(**vscode_args))
+         if not exclude_cli_credential:
+             credentials.append(AzureCliCredential(process_timeout=process_timeout))
+         if not exclude_powershell_credential:
+diff --git a/sdk/identity/azure-identity/azure/identity/aio/_credentials/default.py b/sdk/identity/azure-identity/azure/identity/aio/_credentials/default.py
+index 2445db573e..4f69a7eb42 100644
+--- a/sdk/identity/azure-identity/azure/identity/aio/_credentials/default.py
++++ b/sdk/identity/azure-identity/azure/identity/aio/_credentials/default.py
+@@ -4,6 +4,7 @@
+ # ------------------------------------
+ import logging
+ import os
++import sys
+ from typing import List, Optional, Any, cast
+ 
+ from azure.core.credentials import AccessToken, AccessTokenInfo, TokenRequestOptions
+@@ -39,9 +40,10 @@ class DefaultAzureCredential(ChainedTokenCredential):
+     4. On Windows only: a user who has signed in with a Microsoft application, such as Visual Studio. If multiple
+        identities are in the cache, then the value of  the environment variable ``AZURE_USERNAME`` is used to select
+        which identity to use. See :class:`~azure.identity.aio.SharedTokenCacheCredential` for more details.
+-    5. The identity currently logged in to the Azure CLI.
+-    6. The identity currently logged in to Azure PowerShell.
+-    7. The identity currently logged in to the Azure Developer CLI.
++    5. (Reserved for future) Visual Studio Code SSO support. Currently uses the deprecated VisualStudioCodeCredential.
++    6. The identity currently logged in to the Azure CLI.
++    7. The identity currently logged in to Azure PowerShell.
++    8. The identity currently logged in to the Azure Developer CLI.
+ 
+     This default behavior is configurable with keyword arguments.
+ 
+@@ -221,6 +223,9 @@ class DefaultAzureCredential(ChainedTokenCredential):
+             except Exception as ex:  # pylint:disable=broad-except
+                 _LOGGER.info("Shared token cache is unavailable: '%s'", ex)
+         if not exclude_visual_studio_code_credential:
++            # On Windows, use a silent broker-enabled InteractiveBrowserCredential for VSCode SSO
++            # This provides SSO with VS Code now that WAM is the default authentication mechanism
++            # Note: Async broker credential support is not yet available, so we fall back to VisualStudioCodeCredential
+             credentials.append(VisualStudioCodeCredential(**vscode_args))
+         if not exclude_cli_credential:
+             credentials.append(AzureCliCredential(process_timeout=process_timeout))

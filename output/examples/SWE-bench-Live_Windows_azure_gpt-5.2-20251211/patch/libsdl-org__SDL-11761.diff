@@ -1,0 +1,28 @@
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 94b1c9bfe..31738dd94 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -506,8 +506,15 @@ if(MSVC AND TARGET SDL3-shared)
+     set_property(SOURCE "${asm_src}" PROPERTY LANGUAGE "ASM_MASM")
+     target_sources(SDL3-shared PRIVATE "${asm_src}")
+   elseif(SDL_CPU_ARM32 OR SDL_CPU_ARM64)
+-    # FIXME: ARM assembler (armasm.exe/armasm64.exe) is NOT ASM_MASM, and does 
+ currently not work with CMake
+-    # (https://gitlab.kitware.com/cmake/cmake/-/issues/18912)
++    # On ARM/ARM64, MSVC uses __chkstk as the stack-probe helper for large stac
+ck allocations.
++    # CMake historically had trouble with armasm/armasm64 integration (see issu
+ue 18912),
++    # so we provide a C implementation as a fallback.
++    #
++    # SDL_mslibc.c contains an ARM64-only empty stub implementation of __chkstk
+k.
++    # Ensure the linker does not discard it when building with /OPT:REF.       
++    if(SDL_CPU_ARM64)
++      target_link_options(SDL3-shared PRIVATE "/INCLUDE:__chkstk")
++    endif()
+   endif()
+ endif()
+
+

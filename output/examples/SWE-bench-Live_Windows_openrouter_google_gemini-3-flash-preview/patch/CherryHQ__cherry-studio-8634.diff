@@ -1,0 +1,13 @@
+diff --git a/src/renderer/src/utils/export.ts b/src/renderer/src/utils/export.ts
+index 7f441ef1e..bc7d9b20a 100644
+--- a/src/renderer/src/utils/export.ts
++++ b/src/renderer/src/utils/export.ts
+@@ -169,7 +169,7 @@ const createBaseMarkdown = (
+ ) => {
+   const { forceDollarMathInMarkdown } = store.getState().settings
+   const roleText = getRoleText(message.role, message.model?.name, message.model?.provider)
+-  const titleSection = `### ${roleText}`
++  const titleSection = `## ${roleText}`
+   let reasoningSection = ''
+ 
+   if (includeReasoning) {

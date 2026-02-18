@@ -1,0 +1,31 @@
+diff --git a/hack/test-templates.sh b/hack/test-templates.sh
+index cf9d7f9f..a0de2c77 100755
+--- a/hack/test-templates.sh
++++ b/hack/test-templates.sh
+@@ -92,7 +92,8 @@ case "$NAME" in
+ 	;;
+ "wsl2")
+ 	# TODO https://github.com/lima-vm/lima/issues/3267
+-	CHECKS["systemd"]=
++	# CHECKS["systemd"]=
++	CHECKS["systemd-strict"]=
+ 	# TODO https://github.com/lima-vm/lima/issues/3268
+ 	CHECKS["proxy-settings"]=
+ 	CHECKS["port-forwards"]=
+diff --git a/templates/experimental/wsl2.yaml b/templates/experimental/wsl2.yaml
+index b95e3d8c..218b9826 100644
+--- a/templates/experimental/wsl2.yaml
++++ b/templates/experimental/wsl2.yaml
+@@ -15,3 +15,12 @@ mountType: wsl2
+ containerd:
+   system: true
+   user: false
++
++provision:
++- mode: system
++  script: |
++    #!/bin/sh
++    # Mask auditd and audit-rules as they fail in WSL2
++    systemctl mask auditd.service audit-rules.service
++    # Also mask NetworkManager-wait-online.service which fails in mirrored networking mode
++    systemctl mask NetworkManager-wait-online.service

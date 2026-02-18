@@ -1,0 +1,45 @@
+diff --git a/src/core/windows/SDL_gameinput.h b/src/core/windows/SDL_gameinput.h
+index 0022c0bdd..f0c46b2be 100644
+--- a/src/core/windows/SDL_gameinput.h
++++ b/src/core/windows/SDL_gameinput.h
+@@ -26,7 +26,11 @@
+ #ifdef HAVE_GAMEINPUT_H
+ 
+ #define COBJMACROS
++#ifdef __cplusplus
+ #include <gameinput.h>
++#else
++#include <GameInput.h>
++#endif
+ 
+ extern bool SDL_InitGameInput(IGameInput **ppGameInput);
+ extern void SDL_QuitGameInput(void);
+diff --git a/src/joystick/gdk/SDL_gameinputjoystick.c b/src/joystick/gdk/SDL_gameinputjoystick.c
+index 6cf0a902b..a4cb0987e 100644
+--- a/src/joystick/gdk/SDL_gameinputjoystick.c
++++ b/src/joystick/gdk/SDL_gameinputjoystick.c
+@@ -447,7 +447,7 @@ static bool GAMEINPUT_JoystickOpen(SDL_Joystick *joystick, int device_index)
+                 ++joystick->nbuttons;
+             }
+ 
+-#if 1 // The C macro in GameInput.h version 10.0.26100 refers to a focus policy which I guess has been removed from the final API?
++#if 0 // The C macro in GameInput.h version 10.0.26100 refers to a focus policy which I guess has been removed from the final API?
+ #undef IGameInput_RegisterSystemButtonCallback
+ #define IGameInput_RegisterSystemButtonCallback(This, device, buttonFilter, context, callbackFunc, callbackToken) ((This)->lpVtbl->RegisterSystemButtonCallback(This, device, buttonFilter, context, callbackFunc, callbackToken))
+ #endif
+diff --git a/src/video/windows/SDL_windowsgameinput.c b/src/video/windows/SDL_windowsgameinput.c
+index 183733a38..a9fa47cad 100644
+--- a/src/video/windows/SDL_windowsgameinput.c
++++ b/src/video/windows/SDL_windowsgameinput.c
+@@ -569,11 +569,6 @@ void WIN_QuitGameInput(SDL_VideoDevice *_this)
+             GAMEINPUT_InternalRemoveByIndex(data, 0);
+         }
+ 
+-        IGameInput_Release(data->pGameInput);
+-        data->pGameInput = NULL;
+-    }
+-
+-    if (data->pGameInput) {
+         SDL_QuitGameInput();
+         data->pGameInput = NULL;
+     }

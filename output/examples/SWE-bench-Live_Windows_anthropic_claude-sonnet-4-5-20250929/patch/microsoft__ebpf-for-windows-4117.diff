@@ -1,0 +1,49 @@
+diff --git a/tests/stress/km/stress_tests_km.cpp b/tests/stress/km/stress_tests_km.cpp
+index 53a9e00e..82911795 100644
+--- a/tests/stress/km/stress_tests_km.cpp
++++ b/tests/stress/km/stress_tests_km.cpp
+@@ -214,7 +214,7 @@ _start_extension_restart_thread(
+     const std::string& extension_name, uint32_t restart_delay_ms, uint32_t thread_lifetime_minutes)
+ {
+     return std::thread(
+-        [&](uint32_t local_restart_delay_ms, uint32_t local_thread_lifetime_minutes) {
++        [extension_name](uint32_t local_restart_delay_ms, uint32_t local_thread_lifetime_minutes) {
+             // Delay the start of this thread for a bit to allow the ebpf programs to attach successfully. There's a
+             // window where if the extension is unloading/unloaded, an incoming attach might fail.
+             std::this_thread::sleep_for(std::chrono::seconds(3));
+@@ -710,7 +710,7 @@ _mt_prog_load_stress_test(ebpf_execution_type_t program_type, const test_control
+         // If requested, start the 'extension stop-and-restart' thread for extension for this program type.
+         if (test_control_info.extension_restart_enabled) {
+             auto restart_thread = _start_extension_restart_thread(
+-                std::ref(program_attribs.extension_name),
++                program_attribs.extension_name,
+                 test_control_info.extension_restart_delay_ms,
+                 test_control_info.duration_minutes);
+             extension_restart_thread_table.push_back(std::move(restart_thread));
+@@ -975,7 +975,7 @@ _mt_invoke_prog_stress_test(ebpf_execution_type_t program_type, const test_contr
+     std::string extension_name = {"netebpfext"};
+     if (test_control_info.extension_restart_enabled) {
+         auto restart_thread = _start_extension_restart_thread(
+-            std::ref(extension_name), test_control_info.extension_restart_delay_ms, test_control_info.duration_minutes);
++            extension_name, test_control_info.extension_restart_delay_ms, test_control_info.duration_minutes);
+         extension_restart_thread_table.push_back(std::move(restart_thread));
+     }
+ 
+@@ -1073,7 +1073,7 @@ _mt_sockaddr_invoke_program_test(const test_control_info& test_control_info)
+     std::string extension_name = {"netebpfext"};
+     if (test_control_info.extension_restart_enabled) {
+         auto restart_thread = _start_extension_restart_thread(
+-            std::ref(extension_name), test_control_info.extension_restart_delay_ms, test_control_info.duration_minutes);
++            extension_name, test_control_info.extension_restart_delay_ms, test_control_info.duration_minutes);
+         extension_restart_thread_table.push_back(std::move(restart_thread));
+     }
+ 
+@@ -1386,7 +1386,7 @@ _mt_bindmonitor_tail_call_invoke_program_test(const test_control_info& test_cont
+     std::string extension_name = {"netebpfext"};
+     if (test_control_info.extension_restart_enabled) {
+         auto restart_thread = _start_extension_restart_thread(
+-            std::ref(extension_name), test_control_info.extension_restart_delay_ms, test_control_info.duration_minutes);
++            extension_name, test_control_info.extension_restart_delay_ms, test_control_info.duration_minutes);
+         extension_restart_thread_table.push_back(std::move(restart_thread));
+     }
+ 

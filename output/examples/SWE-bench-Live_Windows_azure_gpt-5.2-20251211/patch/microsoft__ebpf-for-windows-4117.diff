@@ -1,0 +1,99 @@
+~
+~
+~
+~
+~
+~
+~
+~
+--...skipping...
+diff --git a/tests/stress/km/stress_tests_km.cpp b/tests/stress/km/stress_tests_
+_km.cpp
+index 53a9e00e..e13753e8 100644
+--- a/tests/stress/km/stress_tests_km.cpp
++++ b/tests/stress/km/stress_tests_km.cpp
+@@ -155,7 +155,7 @@ _set_extension_state(SC_HANDLE service_handle, service_state
+e_type service_state,
+         // Sleep for a bit to let the SCM process our command.
+         std::this_thread::sleep_for(std::chrono::milliseconds(250));
+     }
+-    return true;
++    return false;
+ }
+
+ static bool
+(END)...skipping...
+~
+~
+~
+~
+~
+~
+~
+~
+~
+diff --git a/tests/stress/km/stress_tests_km.cpp b/tests/stress/km/stress_tests_
+_km.cpp
+index 53a9e00e..e13753e8 100644
+--- a/tests/stress/km/stress_tests_km.cpp
++++ b/tests/stress/km/stress_tests_km.cpp
+@@ -155,7 +155,7 @@ _set_extension_state(SC_HANDLE service_handle, service_state
+e_type service_state,
+         // Sleep for a bit to let the SCM process our command.
+         std::this_thread::sleep_for(std::chrono::milliseconds(250));
+     }
+-    return true;
++    return false;
+ }
+
+ static bool
+set mark: ...skipping...
+~
+~
+~
+~
+~
+~
+~
+~
+~
+diff --git a/tests/stress/km/stress_tests_km.cpp b/tests/stress/km/stress_tests_
+_km.cpp
+index 53a9e00e..e13753e8 100644
+--- a/tests/stress/km/stress_tests_km.cpp
++++ b/tests/stress/km/stress_tests_km.cpp
+@@ -155,7 +155,7 @@ _set_extension_state(SC_HANDLE service_handle, service_state
+e_type service_state,
+         // Sleep for a bit to let the SCM process our command.
+         std::this_thread::sleep_for(std::chrono::milliseconds(250));
+     }
+-    return true;
++    return false;
+ }
+
+ static bool
+~
+(END)~
+~
+~
+~
+~
+~
+~
+~
+diff --git a/tests/stress/km/stress_tests_km.cpp b/tests/stress/km/stress_tests_km.cpp
+index 53a9e00e..e13753e8 100644
+--- a/tests/stress/km/stress_tests_km.cpp
++++ b/tests/stress/km/stress_tests_km.cpp
+@@ -155,7 +155,7 @@ _set_extension_state(SC_HANDLE service_handle, service_state_type service_state,
+         // Sleep for a bit to let the SCM process our command.
+         std::this_thread::sleep_for(std::chrono::milliseconds(250));
+     }
+-    return true;
++    return false;
+ }
+
+ static bool
+~
+(END)
+**Exited due to timeout**

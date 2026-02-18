@@ -1,0 +1,39 @@
+diff --git a/src/vs/workbench/contrib/terminalContrib/suggest/browser/terminalCompletionService.ts b/src/vs/workbench/contrib/terminalContrib/suggest/browser/terminalCompletionService.ts
+index e91ff1ba963..c26248ca980 100644
+--- a/src/vs/workbench/contrib/terminalContrib/suggest/browser/terminalCompletionService.ts
++++ b/src/vs/workbench/contrib/terminalContrib/suggest/browser/terminalCompletionService.ts
+@@ -364,6 +364,34 @@ export class TerminalCompletionService extends Disposable implements ITerminalCo
+ 				});
+ 			}
+ 
++			// Special-case `cd ` to include common shell directory shortcuts. This is required for
++			// Windows too (for example in PowerShell), otherwise users don't get `~`/`-` completions.
++			if (foldersRequested && promptValue.startsWith('cd ') && lastWordFolder.length === 0) {
++				const home = resourceRequestConfig.env?.HOME;
++				if (home) {
++					resourceCompletions.push({
++						label: `~${resourceRequestConfig.pathSeparator}`,
++						provider,
++						kind: TerminalCompletionItemKind.Folder,
++						isDirectory: true,
++						isFile: false,
++						detail: getFriendlyPath(URI.file(home), resourceRequestConfig.pathSeparator),
++						replacementIndex: cursorPosition - lastWord.length,
++						replacementLength: lastWord.length
++					});
++				}
++				resourceCompletions.push({
++					label: '-',
++					provider,
++					kind: TerminalCompletionItemKind.Folder,
++					isDirectory: true,
++					isFile: false,
++					detail: 'Previous directory',
++					replacementIndex: cursorPosition - lastWord.length,
++					replacementLength: lastWord.length
++				});
++			}
++
+ 			// Add all direct children files or folders
+ 			//
+ 			// For example:

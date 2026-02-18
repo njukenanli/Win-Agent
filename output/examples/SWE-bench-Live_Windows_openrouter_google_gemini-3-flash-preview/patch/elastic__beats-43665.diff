@@ -1,0 +1,14 @@
+diff --git a/metricbeat/module/windows/service/service_status.go b/metricbeat/module/windows/service/service_status.go
+index 571d324cb5..6525b4980e 100644
+--- a/metricbeat/module/windows/service/service_status.go
++++ b/metricbeat/module/windows/service/service_status.go
+@@ -168,7 +168,8 @@ func GetServiceStates(handle Handle, state ServiceEnumState, protectedServices m
+ 
+ 		service, err := getServiceInformation(serviceTemp, servicesBuffer, handle, protectedServices)
+ 		if err != nil {
+-			return nil, err
++			logp.Error(fmt.Errorf("error while fetching information for service %s: %w", service.ServiceName, err))
++			continue
+ 		}
+ 
+ 		services = append(services, service)

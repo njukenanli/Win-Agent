@@ -1,0 +1,51 @@
+diff --git a/pkg/commands/git_commands/config.go b/pkg/commands/git_commands/config.go
+index 5ea8f91d7..b1ccf009c 100644
+--- a/pkg/commands/git_commands/config.go
++++ b/pkg/commands/git_commands/config.go
+@@ -68,6 +68,16 @@ func (self *ConfigCommands) UsingGpg() bool {
+ 	return self.gitConfig.GetBool("commit.gpgsign")
+ }
+ 
++// UsingGpgTag tells us whether the user has tag gpg signing enabled
++func (self *ConfigCommands) UsingGpgTag() bool {
++	overrideGpg := self.UserConfig().Git.OverrideGpg
++	if overrideGpg {
++		return false
++	}
++
++	return self.gitConfig.GetBool("tag.gpgsign")
++}
++
+ func (self *ConfigCommands) GetCoreEditor() string {
+ 	return self.gitConfig.Get("core.editor")
+ }
+diff --git a/pkg/commands/git_commands/tag.go b/pkg/commands/git_commands/tag.go
+index d2b01ba7e..4d8d653ad 100644
+--- a/pkg/commands/git_commands/tag.go
++++ b/pkg/commands/git_commands/tag.go
+@@ -13,6 +13,13 @@ func NewTagCommands(gitCommon *GitCommon) *TagCommands {
+ }
+ 
+ func (self *TagCommands) CreateLightweight(tagName string, ref string, force bool) error {
++	// When tag.gpgSign is enabled, Git requires an annotated tag (with message) for signing.
++	// Creating a lightweight tag would cause Git to open an editor waiting for a message,
++	// which hangs lazygit. So we create an annotated tag with an empty message instead.
++	if self.config.UsingGpgTag() {
++		return self.CreateAnnotated(tagName, ref, "", force)
++	}
++
+ 	cmdArgs := NewGitCmd("tag").
+ 		ArgIf(force, "--force").
+ 		Arg("--", tagName).
+diff --git a/pkg/integration/tests/test_list.go b/pkg/integration/tests/test_list.go
+index cce631956..24b11decb 100644
+--- a/pkg/integration/tests/test_list.go
++++ b/pkg/integration/tests/test_list.go
+@@ -368,6 +368,7 @@ var tests = []*components.IntegrationTest{
+ 	tag.Checkout,
+ 	tag.CheckoutWhenBranchWithSameNameExists,
+ 	tag.CopyToClipboard,
++	tag.CreateLightweightWithGpgSign,
+ 	tag.CreateWhileCommitting,
+ 	tag.CrudAnnotated,
+ 	tag.CrudLightweight,

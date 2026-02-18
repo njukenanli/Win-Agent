@@ -1,0 +1,28 @@
+diff --git a/server/certstore/certstore_windows.go b/server/certstore/certstore_windows.go
+index d47adb6ee..e001a80b2 100644
+--- a/server/certstore/certstore_windows.go
++++ b/server/certstore/certstore_windows.go
+@@ -593,16 +593,19 @@ func winSignECDSA(kh uintptr, digest []byte) ([]byte, error) {
+ 		return nil, ErrStoreECDSASigningError
+ 	}
+ 
+-	return winPackECDSASigValue(bytes.NewReader(buf[:size]), len(digest))
++	// For ECDSA, the signature is composed of two components (R and S) of equal size.
++	// The size returned by NCryptSignHash is the total signature size (R + S).
++	// Each component is half of the total signature size, not the digest size.
++	return winPackECDSASigValue(bytes.NewReader(buf[:size]), int(size)/2)
+ }
+ 
+-func winPackECDSASigValue(r io.Reader, digestLength int) ([]byte, error) {
+-	sigR := make([]byte, digestLength)
++func winPackECDSASigValue(r io.Reader, componentSize int) ([]byte, error) {
++	sigR := make([]byte, componentSize)
+ 	if _, err := io.ReadFull(r, sigR); err != nil {
+ 		return nil, ErrStoreECDSASigningError
+ 	}
+ 
+-	sigS := make([]byte, digestLength)
++	sigS := make([]byte, componentSize)
+ 	if _, err := io.ReadFull(r, sigS); err != nil {
+ 		return nil, ErrStoreECDSASigningError
+ 	}

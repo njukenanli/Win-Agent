@@ -1,0 +1,26 @@
+
+warning: CRLF will be replaced by LF in pkg/archive/zip/zip.go.
+The file will have its original line endings in your working directory
+diff --git a/pkg/archive/zip/zip.go b/pkg/archive/zip/zip.go
+index 217b1dff..0cd8f6f9 100644
+--- a/pkg/archive/zip/zip.go
++++ b/pkg/archive/zip/zip.go
+@@ -95,6 +95,14 @@ func (a Archive) Add(f config.File) error {
+        }
+        header.Name = f.Destination
+        header.Method = zip.Deflate
++
++       // Windows filesystems don't carry UNIX executable bits. If we don't for
+rce it,
++       // Linux binaries end up inside the ZIP without +x, which is a regressio
+on.
++       // Since this archive is used to distribute binaries, ensure regular fil
+les
++       // are at least 0755 unless explicitly overridden.
++       if info.Mode().IsRegular() && f.Info.Mode == 0 {
++               header.SetMode(0o755)
++       }
+        if !f.Info.ParsedMTime.IsZero() {
+                header.Modified = f.Info.ParsedMTime
+        }
+
