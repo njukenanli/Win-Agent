@@ -1,5 +1,5 @@
 
-import yaml
+import yaml, json
 from typing import Any
 from datasets import load_dataset
 from argparse import ArgumentParser
@@ -8,13 +8,23 @@ from src.agent import Agent
 
 def main(config: dict[str, Any]) -> None:
     run_id = f"{config['dataset']}_{config['model']}".replace("/", "_").replace("\\", "_")
-    instances: list[dict[str, Any]] = load_dataset(config["dataset"], split = "test")
+    if config["dataset"].endswith(".json") or config["dataset"].endswith(".jsonl"):
+        with open(config["dataset"], "r", encoding="utf-8") as f:
+            if config["dataset"].endswith(".json"):
+                instances = json.load(f)
+            else:
+                instances = [json.loads(line) for line in f]
+    else:
+        instances: list[dict[str, Any]] = load_dataset(config["dataset"], split = config.get("split", None))
+    
     agent = Agent(config["model"], 
                   config["api_key"], 
                   config["base_url"],
                   config["tools"], 
                   config["prompt"], 
                   config["max_steps"],
+                  config.get("workers", 1),
+                  config.get("instance_timeout", 480),
                   config["platform"],
                   run_id)
     if not config["gather_patch"]:
