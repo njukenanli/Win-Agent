@@ -19,6 +19,14 @@ openrouter model:
     model: openrouter/deepseek/deepseek-v3.1-terminus
     base_url: https://openrouter.ai/api/v1
 
+### Benchmark
+
+Should have the following fields
+
+- instance_id
+- problem_statement
+- docker_image
+
 ### Rollout
 
 For windows:
