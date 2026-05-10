@@ -3,7 +3,6 @@ from functools import partial
 import json
 import os
 from datetime import datetime
-import time
 import _thread
 import threading
 import multiprocessing as mp
@@ -68,7 +67,7 @@ class Agent:
 
     def install_py(self, container: Runtime):
         if container.platform=="windows":
-            container.send_command("""
+            container.send_command(r"""
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {$u="https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe";$f="$env:TEMP\python-3.12.10-amd64.exe";Invoke-WebRequest $u -OutFile $f;Start-Process $f "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait;$env:Path+=";C:\Program Files\Python312"}
 """)
         else:
@@ -88,7 +87,7 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {$u="https://www.py
     def set_mnt_permissions(self, container: Runtime) -> None:
         if container.platform == "windows":
             ps_script = r'''
-$root = "C:\\testbed\\mnt"
+$root = "C:\mnt"
 if (Test-Path $root) {
   Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
     if ($_.Extension -ieq ".py") { $_.IsReadOnly = $true } else { $_.IsReadOnly = $false }
@@ -97,7 +96,7 @@ if (Test-Path $root) {
 '''
             container.send_command(ps_script)
         else:
-            mnt_path = "/testbed/mnt"
+            mnt_path = "/mnt"
             cmd = (
                 f'if [ -d "{mnt_path}" ]; then '
                 f'chmod -R a+rwX "{mnt_path}" && '
@@ -112,18 +111,17 @@ if (Test-Path $root) {
         with self.write_lock:
             os.makedirs(f"output/{self.run_id}/patch", exist_ok=True)
 
-        temp_file = f"mnt/{self.run_id}_{instance_id}.diff"
-        container.send_command(f"git --no-pager diff HEAD --diff-filter=M --text > {temp_file}")
-        patch = (Utils.safe_read(temp_file)
-                .replace("""PS>
-PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", ""))
+        temp_file_container = os.path.join(container.mnt_container, f"{self.run_id}_{instance_id}.diff")
+        temp_file_host = os.path.join(container.mnt_host, f"{self.run_id}_{instance_id}.diff")
+        container.send_command(f"git --no-pager diff HEAD --diff-filter=M --text > {temp_file_container}")
+        patch = Utils.safe_read(temp_file_host)
         start = patch.find("diff --git")
         patch = patch[start:]
         patch_file = f"output/{self.run_id}/patch/{instance_id}.diff"
         with self.write_lock:
             with open(patch_file, "w", encoding="utf-8") as f:
                 f.write(patch)
-        container.send_command(f"rm {temp_file}")
+        container.send_command(f"rm {temp_file_container}")
     
     @staticmethod
     def gather_patch(patch_dir):
@@ -131,8 +129,7 @@ PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
         empty = 0
         for patch_file in os.listdir(patch_dir):
             with open(os.path.join(patch_dir, patch_file), encoding = "utf-8") as f:
-                patch = f.read().replace("""PS>
-PS>prompt""", "").replace("git --no-pager diff HEAD --diff-filter=M --text", "")
+                patch = f.read()
                 start = patch.find("diff --git")
                 patch = patch[start:]
                 res[patch_file.strip(".diff")] = {"model_patch": patch}

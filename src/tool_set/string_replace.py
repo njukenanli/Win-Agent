@@ -1,3 +1,4 @@
+import os
 import time
 from src.runtime import Runtime
 from src.tool_set.base import Tool
@@ -41,21 +42,22 @@ class Replace(Tool):
         if new_string is None:
             return "parameter `new_string` is required for string_replace tool call"
         
-        path_file = Tool.temp_file()
-        with open(path_file, "w", encoding = "utf-8") as f:
+        path_file_host, path_file_container = Tool.temp_file(container.mnt_host, container.mnt_container)
+        with open(path_file_host, "w", encoding = "utf-8") as f:
             f.write(path)
-        old_file = Tool.temp_file()
-        with open(old_file, "w", encoding = "utf-8") as f:
+        old_file_host, old_file_container = Tool.temp_file(container.mnt_host, container.mnt_container)
+        with open(old_file_host, "w", encoding = "utf-8") as f:
             f.write(old_string)
-        new_file = Tool.temp_file()
-        with open(new_file, "w", encoding = "utf-8") as f:
+        new_file_host, new_file_container = Tool.temp_file(container.mnt_host, container.mnt_container)
+        with open(new_file_host, "w", encoding = "utf-8") as f:
             f.write(new_string)
         time.sleep(16) # allow time for file write op sync between host and container.
-        output_file = Tool.temp_file()
+        output_file_host, output_file_container = Tool.temp_file(container.mnt_host, container.mnt_container)
         Tool.reset_cwd(container)
         
-        command = f"python -m mnt.replace --path_file {path_file} --old_file {old_file} --new_file {new_file} --output_file {output_file}"
+        src_code_file = os.path.join(container.mnt_container, "replace.py")
+        command = f"python {src_code_file} --path_file {path_file_container} --old_file {old_file_container} --new_file {new_file_container} --output_file {output_file_container}"
         container.send_command(command)
-        res = Tool.safe_read(output_file)
-        container.send_command(f"rm {path_file} ; rm {old_file} ; rm {new_file} ; rm {output_file}")
+        res = Tool.safe_read(output_file_host)
+        container.send_command(f"rm {path_file_container} ; rm {old_file_container} ; rm {new_file_container} ; rm {output_file_container}")
         return res

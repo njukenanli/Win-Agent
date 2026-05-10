@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 import os
-import time
 from typing import Any
 from src.runtime import Runtime
 from src.utils import Utils
@@ -19,8 +18,13 @@ class Tool(ABC):
         Utils.reset_cwd(container)
     
     @staticmethod
-    def temp_file() -> str:
-        return f"mnt/{uuid.uuid4()}.txt"
+    def temp_file(mnt_host: str, mnt_container: str) -> tuple[str, str]:
+        '''
+        returns: 
+        host_path, container_path
+        '''
+        uidx = uuid.uuid4()
+        return os.path.join(mnt_host, f"{uidx}.txt"), os.path.join(mnt_container, f"{uidx}.txt")
     
     @staticmethod
     def safe_read(path: str) -> str:

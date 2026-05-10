@@ -1,3 +1,4 @@
+import os
 import time
 from src.runtime import Runtime
 from src.tool_set.base import Tool
@@ -42,14 +43,15 @@ class Read(Tool):
             if start > end:
                 return "start line number should be < end line number"
             extra_cmd = f"--start {start} --end {end}"
-        path_file = Tool.temp_file()
-        with open(path_file, "w", encoding = "utf-8") as f:
+        path_file_host, path_file_container = Tool.temp_file(container.mnt_host, container.mnt_container)
+        with open(path_file_host, "w", encoding = "utf-8") as f:
             f.write(path)
         time.sleep(16) # allow time for file write op sync between host and container.
-        output_file = Tool.temp_file()
+        output_file_host, output_file_container = Tool.temp_file(container.mnt_host, container.mnt_container)
         Tool.reset_cwd(container)
-        command = f"python -m mnt.read --path_file {path_file} --output_file {output_file}  {extra_cmd}"
+        src_code_file = os.path.join(container.mnt_container, "read.py")
+        command = f"python {src_code_file} --path_file {path_file_container} --output_file {output_file_container}  {extra_cmd}"
         container.send_command(command)
-        res = Tool.safe_read(output_file)
-        container.send_command(f"rm {path_file} ; rm {output_file}")
+        res = Tool.safe_read(output_file_host)
+        container.send_command(f"rm {path_file_container} ; rm {output_file_container}")
         return res

@@ -75,14 +75,14 @@ class Tools:
                 }
             ], False
         
-        if "mnt" in tool_call.function.arguments and any([i in tool_call.function.arguments for i in self.protected_files]):
+        if any([os.path.join(container.mnt_container, i) in tool_call.function.arguments for i in self.protected_files]):
             # for protected files
             return [
                 {
                     "tool_call_id": tool_call.id,
                     "role": "tool",
                     "name": function_name,
-                    "content": f"no permission for testbed/mnt directory.",
+                    "content": f"no permission for {container.mnt_container} directory.",
                 }
             ], False
         

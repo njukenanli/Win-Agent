@@ -152,10 +152,10 @@ class CommandResult:
     
     Attributes:
         output (str): Command output text
-        metadata (Optional[CmdOutputMetadata]): Execution context metadata
+        metadata (CmdOutputMetadata): Execution context metadata
     """
     output: str
-    metadata: Optional[CmdOutputMetadata]
+    metadata: CmdOutputMetadata
 
     def to_observation(self, strip: bool = True) -> str:
         """
@@ -205,9 +205,9 @@ class Runtime:
         self.container = container
         self.platform = container_platform
         self.logger = logger
-        self.mnt_host = os.path.join(os.getcwd(), "tmp")
         self.working_dir = r"C:\testbed" if self.platform == "windows" else r"/testbed"
-        self.mnt_container = self.working_dir + r"\mnt_tmp" if self.platform == "windows" else r"/testbed/mnt_tmp"
+        self.mnt_host = os.path.join(os.getcwd(), "mnt")
+        self.mnt_container = r"C:\mnt" if self.platform == "windows" else r"/mnt"
         self.sock = self.container.attach_socket(
             params={"stdin": 1, "stdout": 1, "stderr": 1, "stream": 1}
         )
@@ -217,9 +217,7 @@ class Runtime:
         if self.platform == "windows":
             self.send_command(r'''
 function prompt {
-  try { $ec = $global:LASTEXITCODE } catch { $ec = $null }
-  $ok = $ExecutionContext.SessionState.PSVariable.GetValue('?', $true)
-  if ($null -eq $ec) { $ec = if ($ok) { 0 } else { 1 } }
+  if ($?) {$ec=0; $LASTEXITCODE=0} else {if ($LASTEXITCODE -ne 0) {$ec=$LASTEXITCODE} else {$ec=1}}
   $u  = $env:USERNAME
   $h  = $env:COMPUTERNAME
   $wd = (Get-Location).Path
@@ -539,7 +537,6 @@ function prompt {
         # which operating system this code is running on, note windows can run linux containers, so engine_os != (container) platform
         extra_hosts = {"host.docker.internal": "host-gateway"} if "linux" in engine_os else None
         
-        os.makedirs(os.path.join(os.getcwd(), "tmp"), exist_ok=True)
         if platform == "windows":
             shell_command = r"powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -NoExit"
             working_dir = r"C:\testbed"
@@ -548,6 +545,7 @@ function prompt {
                 "mem_limit": MEM_LIMIT,
                 "user": "ContainerAdministrator",
             }
+            mnt_container = r"C:\mnt"
         else:
             shell_command = "/bin/bash"
             working_dir = "/testbed"
@@ -555,6 +553,7 @@ function prompt {
                 "cpu_quota": int(CPU_CORES * 100000),
                 "mem_limit": MEM_LIMIT,
             }
+            mnt_container = "/mnt"
 
         container = client.containers.run(
             image_name,
@@ -570,7 +569,7 @@ function prompt {
             extra_hosts=extra_hosts,
             volumes={
                 os.path.join(os.getcwd(), "mnt"): {
-                    "bind": os.path.join(working_dir, "mnt"),
+                    "bind": mnt_container,
                     "mode": "rw",
                 }
             },
