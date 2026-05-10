@@ -1,0 +1,33 @@
+diff --git a/astropy/coordinates/builtin_frames/__init__.py b/astropy/coordinates/builtin_frames/__init__.py
+index 6fd688c28..131509874 100644
+--- a/astropy/coordinates/builtin_frames/__init__.py
++++ b/astropy/coordinates/builtin_frames/__init__.py
+@@ -50,6 +50,7 @@ from . import cirs_observed_transforms
+ from . import icrs_observed_transforms
+ from . import intermediate_rotation_transforms
+ from . import ecliptic_transforms
++from . import itrs_observed_transforms
+ 
+ # Import this after importing other frames, since this requires various
+ # transformtions to set up the LSR frames
+diff --git a/astropy/utils/iers/iers.py b/astropy/utils/iers/iers.py
+index dae42fba8..038da3259 100644
+--- a/astropy/utils/iers/iers.py
++++ b/astropy/utils/iers/iers.py
+@@ -263,10 +263,14 @@ class IERS(QTable):
+         utc : float or array
+             fractional part of MJD
+         """
+-        try:  # see if this is a Time object
++        # Accept Time objects directly (including scalar Time, TimeDelta, etc.)
++        # and avoid leaving ``jd1`` as a Time instance if ``.utc`` is not
++        # available (e.g., for already-UTC two-part JD inputs).
++        try:
+             jd1, jd2 = jd1.utc.jd1, jd1.utc.jd2
+         except Exception:
+-            pass
++            if hasattr(jd1, "jd1") and hasattr(jd1, "jd2"):
++                jd1, jd2 = jd1.jd1, jd1.jd2
+ 
+         mjd = np.floor(jd1 - MJD_ZERO + jd2)
+         utc = jd1 - (MJD_ZERO+mjd) + jd2
