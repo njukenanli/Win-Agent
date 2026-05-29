@@ -27,10 +27,13 @@ class LLM:
         
         for attempt in range(max_retries):
             try:
+                from cloudgpt_aoai import get_openai_token_provider
+                token_provider = get_openai_token_provider()
                 response: ModelResponse = litellm.completion(
                     model=self.model,
-                    api_key=self.api_key,
-                    base_url=self.base_url,
+                    api_base="https://cloudgpt-openai.azure-api.net/",
+                    api_version="2025-04-01-preview",
+                    azure_ad_token_provider=token_provider,
                     messages=messages,
                     tools=self.tools,
                     tool_choice="auto",
