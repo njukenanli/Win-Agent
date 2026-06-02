@@ -41,7 +41,9 @@ python main.py --config_path config/default.yaml --api_key ...
 
 Patch submissions will be saved to output/{run_id}/preds.json
 
-If the rollout is interrupted, to collect existing patches instead of proceeding to rollout, please use the following flag for dry run.
+If the rollout is interrupted, type the same command to restore. The code will auto-skip normally submitted instances.
+
+To collect existing patches instead of proceeding to rollout, please use the following flag for dry run:
 
 ```bash
 python main.py --config_path config/default.yaml --collect_patch 
